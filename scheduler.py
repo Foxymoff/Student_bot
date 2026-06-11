@@ -1,113 +1,77 @@
 """
-Фоновые уведомления: ежедневное расписание и напоминания о дедлайнах.
+Фоновые уведомления: ежедневное расписание.
 """
 
 import logging
-import datetime
 
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import DAILY_SCHEDULE_HOUR, DAILY_SCHEDULE_MINUTE
-from database import get_all_users, get_all_deadlines, mark_deadline_notified
-from handlers.schedule import get_schedule_for_date
+from config import APP_TIMEZONE, app_now, app_today
+from database import get_all_users, mark_user_daily_notify_sent
+from extra_schedule import parse_extra_choices
+from handlers.schedule import get_schedule_for_date_short
+from keyboards import schedule_detail_kb
+from message_style import HTML_PARSE_MODE, title
 
 logger = logging.getLogger(__name__)
 
 
-async def send_daily_schedule(bot: Bot) -> None:
-    """Отправить расписание на текущий день всем пользователям."""
-    today = datetime.date.today()
+async def send_due_daily_schedules(bot: Bot) -> None:
+    """Отправить ежедневное расписание пользователям, у которых подошло время."""
+    now = app_now()
+    today = app_today()
+    today_iso = today.isoformat()
+    current_time = now.strftime("%H:%M")
     users = await get_all_users()
+    sent_count = 0
 
     for user in users:
+        if not user.get("daily_notify_enabled"):
+            continue
+        if str(user.get("daily_notify_time") or "08:00") != current_time:
+            continue
+        if user.get("daily_notify_last_date") == today_iso:
+            continue
+
         try:
-            text = get_schedule_for_date(user["group_name"], today)
+            sg_inf = user.get("subgroup_cs", 1) or 1
+            sg_eng = user.get("subgroup_en", 1) or 1
+            compact = bool(user.get("compact_mode"))
+            extra_keys = parse_extra_choices(user.get("extra_choices")) if user.get("extra_in_schedule") else []
+            text = await get_schedule_for_date_short(
+                user["group_name"], today, sg_inf, sg_eng, compact, extra_keys
+            )
             await bot.send_message(
                 chat_id=user["user_id"],
-                text=f"☀️ Доброе утро! Вот расписание на сегодня:\n\n{text}",
-                parse_mode="Markdown",
+                text=f"☀️ {title('Расписание на сегодня')}\n\n{text}",
+                reply_markup=schedule_detail_kb(today.isoformat()),
+                parse_mode=HTML_PARSE_MODE,
+                disable_notification=not bool(user.get("daily_notify_sound", 1)),
             )
+            await mark_user_daily_notify_sent(user["user_id"], today_iso)
+            sent_count += 1
         except Exception as e:
             logger.warning("Не удалось отправить расписание пользователю %s: %s", user["user_id"], e)
 
-    logger.info("Ежедневная рассылка расписания завершена (%d пользователей)", len(users))
-
-
-async def check_deadlines(bot: Bot) -> None:
-    """Проверить дедлайны и отправить уведомления за 24ч и за 1ч."""
-    now = datetime.datetime.now()
-    deadlines = await get_all_deadlines()
-
-    for dl in deadlines:
-        # Дедлайн хранится как дата (YYYY-MM-DD), считаем что срок — конец дня (23:59)
-        dl_date = datetime.date.fromisoformat(dl["deadline_date"])
-        dl_datetime = datetime.datetime.combine(dl_date, datetime.time(23, 59))
-        delta = dl_datetime - now
-
-        hours_left = delta.total_seconds() / 3600
-
-        # Уведомление за 24 часа
-        if 23 <= hours_left <= 25 and not dl["notified_24h"]:
-            try:
-                await bot.send_message(
-                    chat_id=dl["user_id"],
-                    text=(
-                        f"⏰ Напоминание: до дедлайна «{dl['title']}» "
-                        f"остались примерно сутки!\n"
-                        f"📅 Срок: {dl_date.strftime('%d.%m.%Y')}"
-                    ),
-                )
-                await mark_deadline_notified(dl["id"], "notified_24h")
-                logger.info("Уведомление 24ч для дедлайна #%s отправлено", dl["id"])
-            except Exception as e:
-                logger.warning("Ошибка отправки 24ч уведомления: %s", e)
-
-        # Уведомление за 1 час 🔥
-        if 0 <= hours_left <= 1.5 and not dl["notified_1h"]:
-            try:
-                await bot.send_message(
-                    chat_id=dl["user_id"],
-                    text=(
-                        f"🔥 СРОЧНО! До дедлайна «{dl['title']}» "
-                        f"остался примерно 1 час!\n"
-                        f"📅 Срок: {dl_date.strftime('%d.%m.%Y')}"
-                    ),
-                )
-                await mark_deadline_notified(dl["id"], "notified_1h")
-                logger.info("Уведомление 1ч для дедлайна #%s отправлено", dl["id"])
-            except Exception as e:
-                logger.warning("Ошибка отправки 1ч уведомления: %s", e)
+    if sent_count:
+        logger.info("Ежедневное расписание отправлено (%d пользователей)", sent_count)
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Настроить и вернуть планировщик задач."""
-    scheduler = AsyncIOScheduler()
+    scheduler = AsyncIOScheduler(timezone=APP_TIMEZONE)
 
-    # Ежедневная рассылка расписания
+    # Персональные ежедневные уведомления. По умолчанию у пользователей выключены.
     scheduler.add_job(
-        send_daily_schedule,
-        trigger="cron",
-        hour=DAILY_SCHEDULE_HOUR,
-        minute=DAILY_SCHEDULE_MINUTE,
+        send_due_daily_schedules,
+        trigger="interval",
+        minutes=1,
+        next_run_time=app_now(),
         args=[bot],
         id="daily_schedule",
         replace_existing=True,
     )
 
-    # Проверка дедлайнов каждые 30 минут
-    scheduler.add_job(
-        check_deadlines,
-        trigger="interval",
-        minutes=30,
-        args=[bot],
-        id="check_deadlines",
-        replace_existing=True,
-    )
-
-    logger.info(
-        "Планировщик настроен: расписание в %02d:%02d, проверка дедлайнов каждые 30 мин",
-        DAILY_SCHEDULE_HOUR,
-        DAILY_SCHEDULE_MINUTE,
-    )
+    logger.info("Планировщик настроен: проверка ежедневных расписаний каждую минуту")
     return scheduler

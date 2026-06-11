@@ -1,5 +1,7 @@
 # Секреты
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -29,3 +31,6 @@ env/
 
 # Логи
 *.log
+
+# Локальные файлы ассистентов
+CLAUDE.md

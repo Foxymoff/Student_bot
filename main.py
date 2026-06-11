@@ -7,6 +7,8 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand, MenuButtonCommands
 
 from config import BOT_TOKEN
 from database import init_db
@@ -35,7 +37,7 @@ async def main() -> None:
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=None),
     )
-    dp = Dispatcher()
+    dp = Dispatcher(storage=MemoryStorage())
 
     # Подключение роутеров
     root_router = setup_routers()
@@ -44,6 +46,22 @@ async def main() -> None:
     # Запуск планировщика
     scheduler = setup_scheduler(bot)
     scheduler.start()
+
+    # Меню команд не должно блокировать запуск polling, если Telegram API отвечает долго.
+    try:
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description="Главное меню"),
+                BotCommand(command="profile", description="Учебный профиль"),
+                BotCommand(command="groups", description="Расписание другой группы"),
+                BotCommand(command="settings", description="Настройки"),
+                BotCommand(command="help", description="Помощь"),
+            ],
+            request_timeout=60,
+        )
+        await bot.set_chat_menu_button(menu_button=MenuButtonCommands(), request_timeout=60)
+    except Exception as exc:
+        logger.warning("Не удалось установить меню команд бота: %s", exc)
 
     logger.info("Бот запущен!")
 

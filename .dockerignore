@@ -1,9 +1,34 @@
-.env
-bot.db
-__pycache__
-*.pyc
-*.pyo
 .git
 .gitignore
-README.md
-.env.example
+.dockerignore
+
+# Secrets and local state
+.env
+.env.*
+*.db
+*.sqlite3
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE and local files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.log
+CLAUDE.md
