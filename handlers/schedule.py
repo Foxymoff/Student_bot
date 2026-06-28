@@ -270,7 +270,7 @@ def _fill_gaps(lessons: list[dict]) -> list[dict]:
     nums = [lesson["num"] for lesson in lessons]
     min_num = min(nums)
     max_num = max(nums)
-    lesson_map = {l["num"]: l for l in lessons}
+    lesson_map = {lesson["num"]: lesson for lesson in lessons}
     result = []
     for n in range(min_num, max_num + 1):
         if n in lesson_map:
