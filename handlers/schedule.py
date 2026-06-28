@@ -416,7 +416,7 @@ def format_day_short(
         for num, subj, room in rows:
             padded = subj.ljust(max_subj)
             code_lines.append(f"{num} {_esc(padded)}  {_esc(room)}")
-        for label, (_subj, _time_str, room) in zip(extra_labels, extra_rows):
+        for label, (_subj, _time_str, room) in zip(extra_labels, extra_rows, strict=False):
             padded = label.ljust(max_subj)
             code_lines.append(f"+ {_esc(padded)}  {_esc(room)}")
 
