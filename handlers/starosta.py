@@ -149,7 +149,10 @@ def _parse_subgroup(value: str | None) -> int | None:
     """Разобрать подгруппу из callback_data."""
     if not value or value == "all":
         return None
-    return int(value)
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _selected_pair(data: dict) -> tuple[str, int, int | None] | None:
