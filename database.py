@@ -334,8 +334,17 @@ async def add_override(
         raise ValueError("Номер пары должен быть положительным")
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            """INSERT INTO schedule_overrides
-               (group_name, date, lesson_num, subgroup, override_type, new_value, comment, created_by)
+            """
+            INSERT INTO schedule_overrides (
+                group_name, 
+                date, 
+                lesson_num, 
+                subgroup, 
+                override_type, 
+                new_value, 
+                comment, 
+                created_by
+                )
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (group_name, date, lesson_num, subgroup, override_type, new_value, comment, created_by),
         )

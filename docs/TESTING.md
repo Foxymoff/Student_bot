@@ -6,10 +6,10 @@ This document describes how the bot is tested before deployment.
 
 The project uses two separate environments:
 
-| Environment | Purpose | Bot token | Database |
-|---|---|---|---|
-| Local test | Check changes before deployment | Test bot token | Local test database |
-| Production | Real users | Production bot token | Production database |
+| Environment | Purpose                         | Bot token            | Database            |
+|-------------|---------------------------------|----------------------|---------------------|
+| Local test  | Check changes before deployment | Test bot token       | Local test database |
+| Production  | Real users                      | Production bot token | Production database |
 
 The test bot and the production bot must use different Telegram tokens.
 

@@ -267,10 +267,10 @@ def _fill_gaps(lessons: list[dict]) -> list[dict]:
     """Заполнить пустые слоты (окна) между парами."""
     if not lessons:
         return []
-    nums = [l["num"] for l in lessons]
+    nums = [lesson["num"] for lesson in lessons]
     min_num = min(nums)
     max_num = max(nums)
-    lesson_map = {l["num"]: l for l in lessons}
+    lesson_map = {lesson["num"]: lesson for lesson in lessons}
     result = []
     for n in range(min_num, max_num + 1):
         if n in lesson_map:
@@ -416,7 +416,7 @@ def format_day_short(
         for num, subj, room in rows:
             padded = subj.ljust(max_subj)
             code_lines.append(f"{num} {_esc(padded)}  {_esc(room)}")
-        for label, (_subj, _time_str, room) in zip(extra_labels, extra_rows):
+        for label, (_subj, _time_str, room) in zip(extra_labels, extra_rows, strict=False):
             padded = label.ljust(max_subj)
             code_lines.append(f"+ {_esc(padded)}  {_esc(room)}")
 

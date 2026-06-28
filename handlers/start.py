@@ -1399,8 +1399,6 @@ async def on_back(message: Message, state: FSMContext) -> None:
     await delete_user_message(message)
 
     data = await state.get_data()
-    bot = message.bot
-    chat_id = message.chat.id
 
     if data.get("ui_screen") == "admin":
         from handlers.admin import handle_admin_back  # lazy import
