@@ -6,6 +6,7 @@ import datetime
 import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения из .env
@@ -58,6 +59,7 @@ def app_today() -> datetime.date:
     """Текущая дата в часовом поясе бота."""
     return app_now().date()
 
+
 # Соответствие групп → файлам расписания
 GROUP_FILES: dict[str, str] = {
     "ИСП-25-1": "isp_25_1.json",
@@ -102,5 +104,5 @@ ROOM_SHORT: dict[str, str] = {
 ENG_SUBGROUPS: dict[str, dict[int, str]] = {
     "ИСП-25-1": {1: "Сильная · Шарафутдинова Анита", 2: "Слабая · Юсупова Луиза"},
     "ИСП-25-2": {1: "Сильная · Юсупова Луиза", 2: "Слабая · Шарафутдинова Анита"},
-    "МР-25":    {1: "Сильная · Шарафутдинова Анита", 2: "Слабая · Юсупова Луиза"},
+    "МР-25": {1: "Сильная · Шарафутдинова Анита", 2: "Слабая · Юсупова Луиза"},
 }

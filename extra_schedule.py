@@ -10,31 +10,50 @@ import logging
 from pathlib import Path
 
 from config import (
-    app_today,
     BASE_DIR,
     DATA_DIR,
     EXTRA_DATA_DIR,
     EXTRA_GROUP_FILES,
     ROOM_SHORT,
     SUBJECT_SHORT,
+    app_today,
 )
 
 logger = logging.getLogger(__name__)
 
 WEEKDAY_NAMES: list[str] = [
-    "Понедельник", "Вторник", "Среда", "Четверг",
-    "Пятница", "Суббота", "Воскресенье",
+    "Понедельник",
+    "Вторник",
+    "Среда",
+    "Четверг",
+    "Пятница",
+    "Суббота",
+    "Воскресенье",
 ]
 
 WEEKDAY_NAMES_SHORT: dict[int, str] = {
-    0: "понедельник", 1: "вторник", 2: "среда", 3: "четверг",
-    4: "пятница", 5: "суббота", 6: "воскресенье",
+    0: "понедельник",
+    1: "вторник",
+    2: "среда",
+    3: "четверг",
+    4: "пятница",
+    5: "суббота",
+    6: "воскресенье",
 }
 
 MONTH_NAMES: dict[int, str] = {
-    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-    5: "мая", 6: "июня", 7: "июля", 8: "августа",
-    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
 }
 
 
@@ -223,12 +242,7 @@ def get_extras_for_date(
     week_type = _get_week_type(target_date)
     day_name = WEEKDAY_NAMES[target_date.weekday()]
     selected = set(selected_keys)
-    raw_extras = (
-        data.get("weeks", {})
-        .get(week_type, {})
-        .get(day_name, {})
-        .get("extra", [])
-    )
+    raw_extras = data.get("weeks", {}).get(week_type, {}).get(day_name, {}).get("extra", [])
     return [
         item
         for item in (_normalize_extra(extra) for extra in raw_extras)
@@ -244,11 +258,7 @@ def format_extra_day(
     """Сформировать расписание доп. занятий на день."""
     header = f"<b>{_esc(_date_header(target_date))}</b>"
     if not has_choices:
-        return (
-            f"{header}\n"
-            "Ты пока не выбрал доп. занятия.\n"
-            "Изменить выбор можно через /extra"
-        )
+        return f"{header}\nТы пока не выбрал доп. занятия.\nИзменить выбор можно через /extra"
     if not extras:
         return f"{header}\nВыбранных доп. занятий нет."
 
@@ -269,7 +279,9 @@ def format_extra_day(
     return f"{header}\n" + "\n\n".join(blocks)
 
 
-def format_extra_week_short(extra_week: list[tuple[str, list[dict]]], has_choices: bool = True) -> str:
+def format_extra_week_short(
+    extra_week: list[tuple[str, list[dict]]], has_choices: bool = True
+) -> str:
     """Сформировать краткое цикличное расписание выбранных доп. занятий."""
     if not has_choices:
         return "Ты пока не выбрал доп. занятия.\nИзменить выбор можно через /extra"
@@ -291,7 +303,9 @@ def format_extra_week_short(extra_week: list[tuple[str, list[dict]]], has_choice
     return "\n\n".join(day_blocks)
 
 
-def format_extra_week_detailed(extra_week: list[tuple[str, list[dict]]], has_choices: bool = True) -> str:
+def format_extra_week_detailed(
+    extra_week: list[tuple[str, list[dict]]], has_choices: bool = True
+) -> str:
     """Сформировать подробное цикличное расписание выбранных доп. занятий."""
     if not has_choices:
         return "Ты пока не выбрал доп. занятия.\nИзменить выбор можно через /extra"
@@ -307,11 +321,13 @@ def format_extra_week_detailed(extra_week: list[tuple[str, list[dict]]], has_cho
             room = _esc(_short_room(extra.get("room") or "-"))
             teacher = _esc(str(extra.get("teacher") or "-"))
             blocks.append(
-                "\n".join([
-                    f"{index} {subject}",
-                    f"  {time_str} · {room}",
-                    f"  {teacher}",
-                ])
+                "\n".join(
+                    [
+                        f"{index} {subject}",
+                        f"  {time_str} · {room}",
+                        f"  {teacher}",
+                    ]
+                )
             )
         day_blocks.append(f"<b>{_esc(day_name)}:</b>\n<code>{(chr(10) * 2).join(blocks)}</code>")
 

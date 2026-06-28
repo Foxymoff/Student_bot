@@ -154,7 +154,11 @@ def _selected_pair(data: dict) -> tuple[str, int, int | None] | None:
     lesson_num = data.get("starosta_lesson_num")
     if not date_iso or lesson_num in (None, ""):
         return None
-    return str(date_iso), int(lesson_num), _parse_subgroup(str(data.get("starosta_subgroup") or "all"))
+    return (
+        str(date_iso),
+        int(lesson_num),
+        _parse_subgroup(str(data.get("starosta_subgroup") or "all")),
+    )
 
 
 def _lesson_room(lesson: dict) -> str:
@@ -194,23 +198,29 @@ def _lesson_entries(lessons: list[dict]) -> list[dict]:
         if subgroups:
             for subgroup in subgroups:
                 group = subgroup.get("group")
-                entries.append({
-                    **lesson,
-                    "_target_subgroup": int(group),
-                    "_sg_room": subgroup.get("room", ""),
-                    "_sg_teacher": subgroup.get("teacher", ""),
-                })
+                entries.append(
+                    {
+                        **lesson,
+                        "_target_subgroup": int(group),
+                        "_sg_room": subgroup.get("room", ""),
+                        "_sg_teacher": subgroup.get("teacher", ""),
+                    }
+                )
             continue
 
         subgroup = lesson.get("subgroup")
-        entries.append({
-            **lesson,
-            "_target_subgroup": int(subgroup) if subgroup not in (None, "") else None,
-        })
+        entries.append(
+            {
+                **lesson,
+                "_target_subgroup": int(subgroup) if subgroup not in (None, "") else None,
+            }
+        )
     return entries
 
 
-def _find_lesson(group_name: str, target_date: datetime.date, lesson_num: int, subgroup: int | None = None) -> dict:
+def _find_lesson(
+    group_name: str, target_date: datetime.date, lesson_num: int, subgroup: int | None = None
+) -> dict:
     """Найти пару по номеру и подгруппе."""
     for lesson in _lesson_entries(get_lessons_for_date(group_name, target_date)):
         if int(lesson.get("num", 0)) != lesson_num:
@@ -318,7 +328,14 @@ def _pair_action_text(
     return "\n".join(lines)
 
 
-def _input_text(title_text: str, target_date: datetime.date, lesson_num: int, subgroup: int | None, lesson: dict, body: str) -> str:
+def _input_text(
+    title_text: str,
+    target_date: datetime.date,
+    lesson_num: int,
+    subgroup: int | None,
+    lesson: dict,
+    body: str,
+) -> str:
     """Текст экрана ввода."""
     subject = _esc(_short_name(_lesson_subject(lesson, lesson_num)))
     return titled(
@@ -329,7 +346,14 @@ def _input_text(title_text: str, target_date: datetime.date, lesson_num: int, su
     )
 
 
-def _confirm_text(title_text: str, target_date: datetime.date, lesson_num: int, subgroup: int | None, lesson: dict, body: str) -> str:
+def _confirm_text(
+    title_text: str,
+    target_date: datetime.date,
+    lesson_num: int,
+    subgroup: int | None,
+    lesson: dict,
+    body: str,
+) -> str:
     """Текст подтверждения действия."""
     subject = _esc(_short_name(_lesson_subject(lesson, lesson_num)))
     return titled(
@@ -450,18 +474,25 @@ async def _render_lessons(message: Message, state: FSMContext, user: dict, date_
         lesson_num = int(lesson.get("num", 0))
         subgroup = lesson.get("_target_subgroup")
         lesson_overrides = [
-            override for override in overrides
+            override
+            for override in overrides
             if int(override.get("lesson_num") or 0) == lesson_num
-            and (override.get("subgroup") in (None, "") if subgroup is None else int(override.get("subgroup") or 0) == subgroup)
+            and (
+                override.get("subgroup") in (None, "")
+                if subgroup is None
+                else int(override.get("subgroup") or 0) == subgroup
+            )
         ]
         status = _pair_status(lesson, lesson_overrides)
         subject = _short_name(_lesson_subject(lesson, lesson_num))
         scope = _lesson_scope(subgroup)
         status_label = _pair_status_label(lesson, status)
-        lesson_buttons.append({
-            "_label": f"{lesson_num}. {subject}{scope} · {status_label}",
-            "_callback": f"starosta_pick:{date_iso}:{lesson_num}:{_subgroup_token(subgroup)}",
-        })
+        lesson_buttons.append(
+            {
+                "_label": f"{lesson_num}. {subject}{scope} · {status_label}",
+                "_callback": f"starosta_pick:{date_iso}:{lesson_num}:{_subgroup_token(subgroup)}",
+            }
+        )
 
     body = f"{_esc(_date_text(target_date))}\n\n"
     body += "Выбери пару." if lesson_buttons else "Пар на эту дату нет."
@@ -479,7 +510,14 @@ async def _render_lessons(message: Message, state: FSMContext, user: dict, date_
     )
 
 
-async def _render_actions(message: Message, state: FSMContext, user: dict, date_iso: str, lesson_num: int, subgroup: int | None) -> None:
+async def _render_actions(
+    message: Message,
+    state: FSMContext,
+    user: dict,
+    date_iso: str,
+    lesson_num: int,
+    subgroup: int | None,
+) -> None:
     """Показать действия с выбранной парой."""
     await state.set_state(None)
     target_date = datetime.date.fromisoformat(date_iso)
@@ -525,8 +563,7 @@ def _change_alert_text(
 
     if kind == "cancel":
         return (
-            f"⛔️ <b>ОТМЕНА ПАРЫ</b> на {date_text}\n\n"
-            f"{lesson_num} пара · <b>{subject}</b>{scope}"
+            f"⛔️ <b>ОТМЕНА ПАРЫ</b> на {date_text}\n\n{lesson_num} пара · <b>{subject}</b>{scope}"
         )
 
     if kind == "online":
@@ -578,7 +615,9 @@ async def _send_change_alerts(
                 disable_notification=not bool(user.get("change_alert_sound", 1)),
             )
         except Exception as exc:
-            logger.warning("Не удалось отправить алерт пользователю %s: %s", user.get("user_id"), exc)
+            logger.warning(
+                "Не удалось отправить алерт пользователю %s: %s", user.get("user_id"), exc
+            )
 
 
 @router.callback_query(F.data == "alert:delete")
@@ -610,11 +649,16 @@ async def on_starosta_menu(message: Message, state: FSMContext) -> None:
         return
 
     await delete_user_message(message)
-    header = await message.answer(title("Панель старосты"), reply_markup=main_menu_only_kb(), parse_mode=HTML_PARSE_MODE)
+    header = await message.answer(
+        title("Панель старосты"), reply_markup=main_menu_only_kb(), parse_mode=HTML_PARSE_MODE
+    )
     body = await message.answer(
         titled("Панель старосты", "Выбери дату."),
         reply_markup=starosta_week_dates_kb(
-            [{"date": day.isoformat(), "_label": _date_button_text(day)} for day in _week_dates(False)],
+            [
+                {"date": day.isoformat(), "_label": _date_button_text(day)}
+                for day in _week_dates(False)
+            ],
             False,
         ),
         parse_mode=HTML_PARSE_MODE,
@@ -689,7 +733,9 @@ async def on_starosta_pick(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Нет доступа", show_alert=True)
         return
     _, date_iso, lesson_num, subgroup_raw = callback.data.split(":")
-    await _render_actions(callback.message, state, user, date_iso, int(lesson_num), _parse_subgroup(subgroup_raw))
+    await _render_actions(
+        callback.message, state, user, date_iso, int(lesson_num), _parse_subgroup(subgroup_raw)
+    )
     await callback.answer()
 
 
@@ -736,7 +782,14 @@ async def on_starosta_action(callback: CallbackQuery, state: FSMContext) -> None
         await _show_starosta_body(
             callback.message,
             state,
-            _input_text("Новая аудитория", target_date, lesson_num, subgroup, lesson, "Введи номер аудитории."),
+            _input_text(
+                "Новая аудитория",
+                target_date,
+                lesson_num,
+                subgroup,
+                lesson,
+                "Введи номер аудитории.",
+            ),
             starosta_input_back_kb(),
         )
     elif action == "online":
@@ -745,7 +798,9 @@ async def on_starosta_action(callback: CallbackQuery, state: FSMContext) -> None
         await _show_starosta_body(
             callback.message,
             state,
-            _input_text("Онлайн-занятие", target_date, lesson_num, subgroup, lesson, "Вставь ссылку."),
+            _input_text(
+                "Онлайн-занятие", target_date, lesson_num, subgroup, lesson, "Вставь ссылку."
+            ),
             starosta_input_back_kb(),
         )
     elif action == "note":
@@ -754,7 +809,9 @@ async def on_starosta_action(callback: CallbackQuery, state: FSMContext) -> None
         await _show_starosta_body(
             callback.message,
             state,
-            _input_text("Примечание", target_date, lesson_num, subgroup, lesson, "Введи текст примечания."),
+            _input_text(
+                "Примечание", target_date, lesson_num, subgroup, lesson, "Введи текст примечания."
+            ),
             starosta_input_back_kb(),
         )
     elif action == "cancel":
@@ -763,7 +820,9 @@ async def on_starosta_action(callback: CallbackQuery, state: FSMContext) -> None
         await _show_starosta_body(
             callback.message,
             state,
-            _confirm_text("Отменить пару?", target_date, lesson_num, subgroup, lesson, "Подтверди действие."),
+            _confirm_text(
+                "Отменить пару?", target_date, lesson_num, subgroup, lesson, "Подтверди действие."
+            ),
             starosta_confirm_kb("starosta_cancel"),
         )
     elif action == "rollback":
@@ -776,7 +835,14 @@ async def on_starosta_action(callback: CallbackQuery, state: FSMContext) -> None
         await _show_starosta_body(
             callback.message,
             state,
-            _confirm_text("Откатить изменения?", target_date, lesson_num, subgroup, lesson, "Будут сняты все изменения этой пары."),
+            _confirm_text(
+                "Откатить изменения?",
+                target_date,
+                lesson_num,
+                subgroup,
+                lesson,
+                "Будут сняты все изменения этой пары.",
+            ),
             starosta_confirm_kb("starosta_rollback"),
         )
 
@@ -810,7 +876,9 @@ async def on_starosta_cancel_confirm(callback: CallbackQuery, state: FSMContext)
         created_by=callback.from_user.id,
         subgroup=subgroup,
     )
-    await _send_change_alerts(callback.bot, user["group_name"], date_iso, lesson_num, "cancel", subgroup=subgroup)
+    await _send_change_alerts(
+        callback.bot, user["group_name"], date_iso, lesson_num, "cancel", subgroup=subgroup
+    )
     await _render_current_actions(callback.message, state, user)
     await callback.answer("Готово · пара отменена", show_alert=True)
 
@@ -862,7 +930,14 @@ async def on_room_input(message: Message, state: FSMContext) -> None:
         await _show_starosta_body(
             message,
             state,
-            _input_text("Новая аудитория", target_date, lesson_num, subgroup, lesson, f"{error}\n\nВведи номер аудитории."),
+            _input_text(
+                "Новая аудитория",
+                target_date,
+                lesson_num,
+                subgroup,
+                lesson,
+                f"{error}\n\nВведи номер аудитории.",
+            ),
             starosta_input_back_kb(),
         )
         return
@@ -877,7 +952,9 @@ async def on_room_input(message: Message, state: FSMContext) -> None:
         created_by=message.from_user.id,
         subgroup=subgroup,
     )
-    await _send_change_alerts(message.bot, user["group_name"], date_iso, lesson_num, "room_change", new_room, subgroup)
+    await _send_change_alerts(
+        message.bot, user["group_name"], date_iso, lesson_num, "room_change", new_room, subgroup
+    )
     await _render_current_actions(message, state, user)
 
 
@@ -902,7 +979,14 @@ async def on_link_input(message: Message, state: FSMContext) -> None:
         await _show_starosta_body(
             message,
             state,
-            _input_text("Онлайн-занятие", target_date, lesson_num, subgroup, lesson, f"{error}\n\nВставь ссылку."),
+            _input_text(
+                "Онлайн-занятие",
+                target_date,
+                lesson_num,
+                subgroup,
+                lesson,
+                f"{error}\n\nВставь ссылку.",
+            ),
             starosta_input_back_kb(),
         )
         return
@@ -917,7 +1001,9 @@ async def on_link_input(message: Message, state: FSMContext) -> None:
         created_by=message.from_user.id,
         subgroup=subgroup,
     )
-    await _send_change_alerts(message.bot, user["group_name"], date_iso, lesson_num, "online", link, subgroup)
+    await _send_change_alerts(
+        message.bot, user["group_name"], date_iso, lesson_num, "online", link, subgroup
+    )
     await _render_current_actions(message, state, user)
 
 
@@ -942,7 +1028,14 @@ async def on_note_input(message: Message, state: FSMContext) -> None:
         await _show_starosta_body(
             message,
             state,
-            _input_text("Примечание", target_date, lesson_num, subgroup, lesson, f"{error}\n\nВведи текст примечания."),
+            _input_text(
+                "Примечание",
+                target_date,
+                lesson_num,
+                subgroup,
+                lesson,
+                f"{error}\n\nВведи текст примечания.",
+            ),
             starosta_input_back_kb(),
         )
         return
@@ -970,7 +1063,15 @@ async def handle_starosta_back(message: Message, state: FSMContext) -> bool:
     if screen == "dates":
         await _replace_with_main_menu(message, state, user)
         return True
-    if screen in {"lessons", "actions", "room_input", "online_input", "note_input", "cancel_confirm", "rollback_confirm"}:
+    if screen in {
+        "lessons",
+        "actions",
+        "room_input",
+        "online_input",
+        "note_input",
+        "cancel_confirm",
+        "rollback_confirm",
+    }:
         date_iso = data.get("starosta_date")
         if screen == "lessons" or not date_iso:
             await _render_dates(message, state, bool(data.get("starosta_next_week")))

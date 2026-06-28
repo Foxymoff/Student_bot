@@ -4,50 +4,57 @@
 
 import logging
 import re
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
-from aiogram.filters import CommandStart, Command
+
+from aiogram import F, Router
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 
 from config import ENG_SUBGROUPS
 from database import (
-    get_user,
     add_user,
-    update_user_subgroups,
+    get_user,
+    update_user_change_alert,
     update_user_compact,
+    update_user_daily_notify,
     update_user_extra_choices,
     update_user_extra_in_schedule,
-    update_user_daily_notify,
-    update_user_change_alert,
+    update_user_subgroups,
 )
 from extra_schedule import get_extra_options, parse_extra_choices
-from message_style import HTML_PARSE_MODE, MAIN_MENU_TEXT, esc, register_required_text, title, titled
-from ui_messages import (
-    add_ui_messages,
-    clear_state_keep_ui,
-    clear_ui_messages,
-    delete_user_message,
-    register_ui_messages,
-    replace_ui_messages,
-)
 from keyboards import (
-    group_select_kb,
-    subgroup_select_kb,
-    eng_subgroup_select_kb,
-    extra_select_kb,
-    extra_display_kb,
-    daily_notify_kb,
-    daily_time_back_kb,
-    daily_notify_sound_kb,
-    main_menu_kb,
     back_kb,
+    daily_notify_kb,
+    daily_notify_sound_kb,
+    daily_time_back_kb,
+    eng_subgroup_select_kb,
+    extra_display_kb,
+    extra_select_kb,
+    group_select_kb,
+    main_menu_kb,
+    profile_menu_kb,
     settings_change_alert_kb,
     settings_daily_notify_kb,
     settings_extra_display_kb,
     settings_menu_kb,
-    profile_menu_kb,
     settings_view_kb,
+    subgroup_select_kb,
+)
+from message_style import (
+    HTML_PARSE_MODE,
+    MAIN_MENU_TEXT,
+    esc,
+    register_required_text,
+    title,
+    titled,
+)
+from ui_messages import (
+    add_ui_messages,
+    clear_state_keep_ui,
+    delete_user_message,
+    register_ui_messages,
+    replace_ui_messages,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,12 +112,7 @@ def _help_text() -> str:
 
 def _schedule_view_text() -> str:
     """Текст раздела настроек вида расписания."""
-    return (
-        f"{title('Вид расписания')}\n\n"
-        "Рекомендуем:\n"
-        "Android — компактный\n"
-        "iOS, ПК — колонки"
-    )
+    return f"{title('Вид расписания')}\n\nРекомендуем:\nAndroid — компактный\niOS, ПК — колонки"
 
 
 def _daily_notify_text(user: dict) -> str:
@@ -180,8 +182,7 @@ def _daily_time_text(new: bool = False) -> str:
     action = "Напиши новое время" if new else "Напиши время"
     return titled(
         "Время уведомления",
-        f"{action} в формате: <b>часы:минуты</b>\n"
-        "Например · 08:30 или 8:30",
+        f"{action} в формате: <b>часы:минуты</b>\nНапример · 08:30 или 8:30",
     )
 
 
@@ -254,7 +255,9 @@ async def _send_register_required(message: Message, state: FSMContext) -> None:
 async def _show_profile_message(message: Message, state: FSMContext, user: dict) -> None:
     """Открыть учебный профиль отдельным сообщением."""
     await delete_user_message(message)
-    sent = await message.answer(_profile_text(user), reply_markup=profile_menu_kb(), parse_mode=HTML_PARSE_MODE)
+    sent = await message.answer(
+        _profile_text(user), reply_markup=profile_menu_kb(), parse_mode=HTML_PARSE_MODE
+    )
     await replace_ui_messages(
         message.bot,
         message.chat.id,
@@ -635,7 +638,9 @@ async def on_registration_change_alert(callback: CallbackQuery, state: FSMContex
     await callback.answer()
 
 
-@router.callback_query(Registration.change_alert_sound, F.data.startswith("reg_change_alert_sound:"))
+@router.callback_query(
+    Registration.change_alert_sound, F.data.startswith("reg_change_alert_sound:")
+)
 async def on_registration_change_alert_sound(callback: CallbackQuery, state: FSMContext) -> None:
     """Выбор звука алертов изменений во время регистрации."""
     sound = bool(int(callback.data.split(":")[-1]))
@@ -1121,7 +1126,9 @@ async def on_settings_daily_enabled(callback: CallbackQuery, state: FSMContext) 
         return
 
     await state.set_state(Settings.daily_time)
-    await state.update_data(settings_daily_action="enable", settings_daily_msg=callback.message.message_id)
+    await state.update_data(
+        settings_daily_action="enable", settings_daily_msg=callback.message.message_id
+    )
     await callback.message.edit_text(
         _daily_time_text(),
         reply_markup=daily_time_back_kb("settings_daily_time_back"),
@@ -1134,7 +1141,9 @@ async def on_settings_daily_enabled(callback: CallbackQuery, state: FSMContext) 
 async def on_settings_daily_time(callback: CallbackQuery, state: FSMContext) -> None:
     """Запросить новое время ежедневного расписания."""
     await state.set_state(Settings.daily_time)
-    await state.update_data(settings_daily_action="time", settings_daily_msg=callback.message.message_id)
+    await state.update_data(
+        settings_daily_action="time", settings_daily_msg=callback.message.message_id
+    )
     await callback.message.edit_text(
         _daily_time_text(new=True),
         reply_markup=daily_time_back_kb("settings_daily_time_back"),
@@ -1395,11 +1404,13 @@ async def on_back(message: Message, state: FSMContext) -> None:
 
     if data.get("ui_screen") == "admin":
         from handlers.admin import handle_admin_back  # lazy import
+
         if await handle_admin_back(message, state):
             return
 
     if data.get("ui_screen") == "starosta":
         from handlers.starosta import handle_starosta_back  # lazy import
+
         if await handle_starosta_back(message, state):
             return
 
@@ -1410,6 +1421,7 @@ async def on_back(message: Message, state: FSMContext) -> None:
     if screen == "schedule_period":
         if data.get("schedule_context") == "other":
             from handlers.schedule import show_other_group_select  # lazy import
+
             await show_other_group_select(message, state)
             return
 
@@ -1420,6 +1432,7 @@ async def on_back(message: Message, state: FSMContext) -> None:
 
     if screen == "other_group_select":
         from handlers.schedule import show_other_group_select  # lazy import
+
         await show_other_group_select(message, state)
         return
 

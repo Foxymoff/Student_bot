@@ -2,29 +2,34 @@
 Обработчик блока «Расписание»: краткий / подробный вид, подгруппы, overrides.
 """
 
+import datetime
 import html as _html
 import json
 import logging
-import datetime
 
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 
-from config import DATA_DIR, GROUP_FILES, GROUPS, SUBJECT_SHORT, ROOM_SHORT, app_today
-from database import get_user, get_overrides
+from config import DATA_DIR, GROUP_FILES, GROUPS, ROOM_SHORT, SUBJECT_SHORT, app_today
+from database import get_overrides, get_user
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.start import push_nav
-from message_style import HTML_PARSE_MODE, register_required_text, title, titled
-from ui_messages import clear_ui_messages, delete_user_message, register_ui_messages, replace_ui_messages
 from keyboards import (
     back_kb,
     other_group_select_kb,
-    schedule_period_reply_kb,
-    schedule_detail_kb,
     schedule_collapse_kb,
+    schedule_detail_kb,
+    schedule_period_reply_kb,
+)
+from message_style import HTML_PARSE_MODE, register_required_text, title, titled
+from ui_messages import (
+    clear_ui_messages,
+    delete_user_message,
+    register_ui_messages,
+    replace_ui_messages,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,20 +37,39 @@ router = Router()
 
 # Русские названия дней недели (Monday=0 … Sunday=6)
 WEEKDAY_NAMES: list[str] = [
-    "Понедельник", "Вторник", "Среда", "Четверг",
-    "Пятница", "Суббота", "Воскресенье",
+    "Понедельник",
+    "Вторник",
+    "Среда",
+    "Четверг",
+    "Пятница",
+    "Суббота",
+    "Воскресенье",
 ]
 
 # Русские названия месяцев (родительный падеж)
 MONTH_NAMES: dict[int, str] = {
-    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-    5: "мая", 6: "июня", 7: "июля", 8: "августа",
-    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
 }
 
 WEEKDAY_NAMES_SHORT: dict[int, str] = {
-    0: "понедельник", 1: "вторник", 2: "среда", 3: "четверг",
-    4: "пятница", 5: "суббота", 6: "воскресенье",
+    0: "понедельник",
+    1: "вторник",
+    2: "среда",
+    3: "четверг",
+    4: "пятница",
+    5: "суббота",
+    6: "воскресенье",
 }
 
 
@@ -383,8 +407,7 @@ def format_day_short(
     else:
         # Колонки с выравниванием в моноширинном блоке
         extra_labels = [
-            f"{subj} · {time_str}" if time_str else subj
-            for subj, time_str, _room in extra_rows
+            f"{subj} · {time_str}" if time_str else subj for subj, time_str, _room in extra_rows
         ]
         max_subj = max(
             [len(row[1]) for row in rows] + [len(label) for label in extra_labels],
@@ -479,8 +502,12 @@ def get_lessons_for_date(group_name: str, target_date: datetime.date) -> list[di
 
 
 async def get_schedule_for_date_short(
-    group_name: str, target_date: datetime.date, sg_inf: int = 1, sg_eng: int = 1,
-    compact: bool = False, extra_choices: list[str] | None = None,
+    group_name: str,
+    target_date: datetime.date,
+    sg_inf: int = 1,
+    sg_eng: int = 1,
+    compact: bool = False,
+    extra_choices: list[str] | None = None,
 ) -> str:
     """Получить краткое расписание на дату (с overrides)."""
     lessons = get_lessons_for_date(group_name, target_date)
@@ -490,7 +517,10 @@ async def get_schedule_for_date_short(
 
 
 async def get_schedule_for_date_detailed(
-    group_name: str, target_date: datetime.date, sg_inf: int = 1, sg_eng: int = 1,
+    group_name: str,
+    target_date: datetime.date,
+    sg_inf: int = 1,
+    sg_eng: int = 1,
     extra_choices: list[str] | None = None,
 ) -> str:
     """Получить подробное расписание на дату (с overrides)."""
@@ -566,7 +596,9 @@ async def show_other_group_select(message: Message, state: FSMContext) -> None:
         )
         return
 
-    header = await message.answer(title("Расписание другой группы"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE)
+    header = await message.answer(
+        title("Расписание другой группы"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
+    )
     body = await message.answer(
         titled("Группа", "Выбери группу."),
         reply_markup=other_group_select_kb(user["group_name"]),
@@ -696,7 +728,9 @@ async def on_schedule_tomorrow(message: Message, state: FSMContext) -> None:
     extra_keys = _schedule_extra_keys(user, data)
     await push_nav(state, "schedule_period")
     await _update_period_header(message, state, _period_header("Завтра:", data))
-    text = await get_schedule_for_date_short(group_name, tomorrow, sg_inf, sg_eng, compact, extra_keys)
+    text = await get_schedule_for_date_short(
+        group_name, tomorrow, sg_inf, sg_eng, compact, extra_keys
+    )
     await _send_schedule(message, state, text, tomorrow.isoformat())
 
 
@@ -823,7 +857,9 @@ async def on_schedule_detail(callback: CallbackQuery, state: FSMContext) -> None
     group_name = _schedule_group_name(user, data)
     extra_keys = _schedule_extra_keys(user, data)
     text = await get_schedule_for_date_detailed(group_name, target_date, sg_inf, sg_eng, extra_keys)
-    await callback.message.edit_text(text, reply_markup=schedule_collapse_kb(date_iso), parse_mode="HTML")
+    await callback.message.edit_text(
+        text, reply_markup=schedule_collapse_kb(date_iso), parse_mode="HTML"
+    )
     await callback.answer()
 
 
@@ -842,8 +878,12 @@ async def on_schedule_collapse(callback: CallbackQuery, state: FSMContext) -> No
     compact = bool(user.get("compact_mode"))
     group_name = _schedule_group_name(user, data)
     extra_keys = _schedule_extra_keys(user, data)
-    text = await get_schedule_for_date_short(group_name, target_date, sg_inf, sg_eng, compact, extra_keys)
-    await callback.message.edit_text(text, reply_markup=schedule_detail_kb(date_iso), parse_mode="HTML")
+    text = await get_schedule_for_date_short(
+        group_name, target_date, sg_inf, sg_eng, compact, extra_keys
+    )
+    await callback.message.edit_text(
+        text, reply_markup=schedule_detail_kb(date_iso), parse_mode="HTML"
+    )
     await callback.answer()
 
 

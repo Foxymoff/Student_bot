@@ -5,15 +5,24 @@
 import hmac
 import logging
 import time
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
 
 from config import ADMIN_PASSWORD, ADMIN_USER_IDS
-from database import get_user, set_user_role, get_users_by_role, get_all_users
-from keyboards import admin_menu_kb, admin_users_kb, admin_starostas_kb, back_kb, main_menu_kb
-from message_style import HTML_PARSE_MODE, MAIN_MENU_TEXT, esc, no_access_text, register_required_text, title, titled
+from database import get_all_users, get_user, get_users_by_role, set_user_role
+from keyboards import admin_menu_kb, admin_starostas_kb, admin_users_kb, back_kb, main_menu_kb
+from message_style import (
+    HTML_PARSE_MODE,
+    MAIN_MENU_TEXT,
+    esc,
+    no_access_text,
+    register_required_text,
+    title,
+    titled,
+)
 from ui_messages import delete_user_message, replace_ui_messages
 
 logger = logging.getLogger(__name__)
@@ -155,7 +164,9 @@ async def _edit_admin_body(
 
 async def _send_admin_menu(message: Message, state: FSMContext) -> None:
     """Показать корневую панель админа с reply-кнопкой Назад."""
-    header = await message.answer(title("Панель администратора"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE)
+    header = await message.answer(
+        title("Панель администратора"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
+    )
     body = await message.answer(
         titled("Действие", "Выбери действие."),
         reply_markup=admin_menu_kb(),

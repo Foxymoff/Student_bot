@@ -6,7 +6,6 @@ from collections.abc import Iterable
 
 from aiogram.fsm.context import FSMContext
 
-
 LEGACY_MESSAGE_KEYS: tuple[str, ...] = (
     "last_bot_msg",
     "last_schedule_msg",
@@ -87,7 +86,9 @@ async def clear_ui_messages(
     all_ids = collect_ui_message_ids(data)
     await delete_message_ids(bot, chat_id, [msg_id for msg_id in all_ids if msg_id not in excluded])
 
-    kept_ids = [msg_id for msg_id in _normalise_ids(data.get("ui_msg_ids", [])) if msg_id in excluded]
+    kept_ids = [
+        msg_id for msg_id in _normalise_ids(data.get("ui_msg_ids", [])) if msg_id in excluded
+    ]
     updates: dict[str, object] = {
         "ui_msg_ids": kept_ids,
         "ui_screen": data.get("ui_screen") if kept_ids else None,

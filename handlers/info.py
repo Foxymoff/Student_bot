@@ -2,15 +2,16 @@
 Простые информационные разделы главного меню.
 """
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from database import get_user
 from handlers.start import push_nav
-from message_style import HTML_PARSE_MODE, register_required_text, title as styled_title
-from ui_messages import delete_user_message, replace_ui_messages
 from keyboards import back_kb
+from message_style import HTML_PARSE_MODE, register_required_text
+from message_style import title as styled_title
+from ui_messages import delete_user_message, replace_ui_messages
 
 router = Router()
 
@@ -51,7 +52,9 @@ async def on_info_screen(message: Message, state: FSMContext) -> None:
     screen_key = INFO_ALIASES[message.text]
     screen_title, text = INFO_SCREENS[screen_key]
 
-    header = await message.answer(styled_title(screen_title), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE)
+    header = await message.answer(
+        styled_title(screen_title), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
+    )
     body = await message.answer(text, parse_mode=HTML_PARSE_MODE)
     await replace_ui_messages(
         message.bot,
