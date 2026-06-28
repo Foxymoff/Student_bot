@@ -267,7 +267,7 @@ def _fill_gaps(lessons: list[dict]) -> list[dict]:
     """Заполнить пустые слоты (окна) между парами."""
     if not lessons:
         return []
-    nums = [l["num"] for l in lessons]
+    nums = [lesson["num"] for lesson in lessons]
     min_num = min(nums)
     max_num = max(nums)
     lesson_map = {l["num"]: l for l in lessons}
