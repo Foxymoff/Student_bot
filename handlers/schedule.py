@@ -2,29 +2,34 @@
 Обработчик блока «Расписание»: краткий / подробный вид, подгруппы, overrides.
 """
 
+import datetime
 import html as _html
 import json
 import logging
-import datetime
 
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 
-from config import DATA_DIR, GROUP_FILES, GROUPS, SUBJECT_SHORT, ROOM_SHORT, app_today
-from database import get_user, get_overrides
+from config import DATA_DIR, GROUP_FILES, GROUPS, ROOM_SHORT, SUBJECT_SHORT, app_today
+from database import get_overrides, get_user
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.start import push_nav
-from message_style import HTML_PARSE_MODE, register_required_text, title, titled
-from ui_messages import clear_ui_messages, delete_user_message, register_ui_messages, replace_ui_messages
 from keyboards import (
     back_kb,
     other_group_select_kb,
-    schedule_period_reply_kb,
-    schedule_detail_kb,
     schedule_collapse_kb,
+    schedule_detail_kb,
+    schedule_period_reply_kb,
+)
+from message_style import HTML_PARSE_MODE, register_required_text, title, titled
+from ui_messages import (
+    clear_ui_messages,
+    delete_user_message,
+    register_ui_messages,
+    replace_ui_messages,
 )
 
 logger = logging.getLogger(__name__)

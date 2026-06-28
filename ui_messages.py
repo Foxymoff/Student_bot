@@ -6,7 +6,6 @@ from collections.abc import Iterable
 
 from aiogram.fsm.context import FSMContext
 
-
 LEGACY_MESSAGE_KEYS: tuple[str, ...] = (
     "last_bot_msg",
     "last_schedule_msg",

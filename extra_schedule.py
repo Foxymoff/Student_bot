@@ -10,13 +10,13 @@ import logging
 from pathlib import Path
 
 from config import (
-    app_today,
     BASE_DIR,
     DATA_DIR,
     EXTRA_DATA_DIR,
     EXTRA_GROUP_FILES,
     ROOM_SHORT,
     SUBJECT_SHORT,
+    app_today,
 )
 
 logger = logging.getLogger(__name__)

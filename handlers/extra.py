@@ -4,7 +4,7 @@
 
 import logging
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -19,8 +19,6 @@ from extra_schedule import (
     parse_extra_choices,
 )
 from handlers.start import _profile_text, push_nav
-from message_style import HTML_PARSE_MODE, MAIN_MENU_TEXT, register_required_text, title
-from ui_messages import delete_user_message, replace_ui_messages
 from keyboards import (
     back_kb,
     extra_collapse_kb,
@@ -29,6 +27,8 @@ from keyboards import (
     main_menu_kb,
     profile_menu_kb,
 )
+from message_style import HTML_PARSE_MODE, MAIN_MENU_TEXT, register_required_text, title
+from ui_messages import delete_user_message, replace_ui_messages
 
 logger = logging.getLogger(__name__)
 router = Router()

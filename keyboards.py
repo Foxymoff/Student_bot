@@ -3,13 +3,13 @@
 """
 
 from aiogram.types import (
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardMarkup,
     InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
 )
-from config import GROUPS, ENG_SUBGROUPS
 
+from config import ENG_SUBGROUPS, GROUPS
 
 # ── Reply-клавиатуры ──────────────────────────────────────
 

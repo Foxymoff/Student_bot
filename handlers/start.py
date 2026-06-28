@@ -4,50 +4,57 @@
 
 import logging
 import re
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
-from aiogram.filters import CommandStart, Command
+
+from aiogram import F, Router
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 
 from config import ENG_SUBGROUPS
 from database import (
-    get_user,
     add_user,
-    update_user_subgroups,
+    get_user,
+    update_user_change_alert,
     update_user_compact,
+    update_user_daily_notify,
     update_user_extra_choices,
     update_user_extra_in_schedule,
-    update_user_daily_notify,
-    update_user_change_alert,
+    update_user_subgroups,
 )
 from extra_schedule import get_extra_options, parse_extra_choices
-from message_style import HTML_PARSE_MODE, MAIN_MENU_TEXT, esc, register_required_text, title, titled
-from ui_messages import (
-    add_ui_messages,
-    clear_state_keep_ui,
-    clear_ui_messages,
-    delete_user_message,
-    register_ui_messages,
-    replace_ui_messages,
-)
 from keyboards import (
-    group_select_kb,
-    subgroup_select_kb,
-    eng_subgroup_select_kb,
-    extra_select_kb,
-    extra_display_kb,
-    daily_notify_kb,
-    daily_time_back_kb,
-    daily_notify_sound_kb,
-    main_menu_kb,
     back_kb,
+    daily_notify_kb,
+    daily_notify_sound_kb,
+    daily_time_back_kb,
+    eng_subgroup_select_kb,
+    extra_display_kb,
+    extra_select_kb,
+    group_select_kb,
+    main_menu_kb,
+    profile_menu_kb,
     settings_change_alert_kb,
     settings_daily_notify_kb,
     settings_extra_display_kb,
     settings_menu_kb,
-    profile_menu_kb,
     settings_view_kb,
+    subgroup_select_kb,
+)
+from message_style import (
+    HTML_PARSE_MODE,
+    MAIN_MENU_TEXT,
+    esc,
+    register_required_text,
+    title,
+    titled,
+)
+from ui_messages import (
+    add_ui_messages,
+    clear_state_keep_ui,
+    delete_user_message,
+    register_ui_messages,
+    replace_ui_messages,
 )
 
 logger = logging.getLogger(__name__)

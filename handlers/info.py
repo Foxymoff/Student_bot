@@ -2,15 +2,16 @@
 Простые информационные разделы главного меню.
 """
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from database import get_user
 from handlers.start import push_nav
-from message_style import HTML_PARSE_MODE, register_required_text, title as styled_title
-from ui_messages import delete_user_message, replace_ui_messages
 from keyboards import back_kb
+from message_style import HTML_PARSE_MODE, register_required_text
+from message_style import title as styled_title
+from ui_messages import delete_user_message, replace_ui_messages
 
 router = Router()
 
