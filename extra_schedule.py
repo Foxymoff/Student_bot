@@ -165,7 +165,7 @@ def parse_extra_choices(value: object) -> list[str]:
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError:
-        return [part for part in value.split(",") if part]
+        return []
     if not isinstance(parsed, list):
         return []
     return [str(v) for v in parsed]
