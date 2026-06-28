@@ -119,7 +119,11 @@ def _short_room(room: object) -> str:
 
 def _date_text(target_date: datetime.date) -> str:
     """Дата для текстов: '2 июня · вторник'."""
-    return f"{target_date.day} {MONTH_NAMES[target_date.month]} · {WEEKDAY_NAMES_SHORT[target_date.weekday()]}"
+    day = target_date.day
+    month_name = MONTH_NAMES[target_date.month]
+    weekday_name = WEEKDAY_NAMES_SHORT[target_date.weekday()]
+
+    return f"{day} {month_name} · {weekday_name}"
 
 
 def _date_button_text(target_date: datetime.date) -> str:
