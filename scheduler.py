@@ -38,7 +38,11 @@ async def send_due_daily_schedules(bot: Bot) -> None:
             sg_inf = user.get("subgroup_cs", 1) or 1
             sg_eng = user.get("subgroup_en", 1) or 1
             compact = bool(user.get("compact_mode"))
-            extra_keys = parse_extra_choices(user.get("extra_choices")) if user.get("extra_in_schedule") else []
+            extra_keys = (
+                parse_extra_choices(user.get("extra_choices"))
+                if user.get("extra_in_schedule")
+                else []
+            )
             text = await get_schedule_for_date_short(
                 user["group_name"], today, sg_inf, sg_eng, compact, extra_keys
             )
@@ -52,7 +56,9 @@ async def send_due_daily_schedules(bot: Bot) -> None:
             await mark_user_daily_notify_sent(user["user_id"], today_iso)
             sent_count += 1
         except Exception as e:
-            logger.warning("Не удалось отправить расписание пользователю %s: %s", user["user_id"], e)
+            logger.warning(
+                "Не удалось отправить расписание пользователю %s: %s", user["user_id"], e
+            )
 
     if sent_count:
         logger.info("Ежедневное расписание отправлено (%d пользователей)", sent_count)

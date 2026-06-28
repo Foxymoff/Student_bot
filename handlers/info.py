@@ -52,7 +52,9 @@ async def on_info_screen(message: Message, state: FSMContext) -> None:
     screen_key = INFO_ALIASES[message.text]
     screen_title, text = INFO_SCREENS[screen_key]
 
-    header = await message.answer(styled_title(screen_title), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE)
+    header = await message.answer(
+        styled_title(screen_title), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
+    )
     body = await message.answer(text, parse_mode=HTML_PARSE_MODE)
     await replace_ui_messages(
         message.bot,

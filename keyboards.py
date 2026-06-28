@@ -53,10 +53,7 @@ def main_menu_only_kb() -> ReplyKeyboardMarkup:
 
 def group_select_kb(prefix: str = "group", include_back: bool = False) -> InlineKeyboardMarkup:
     """Выбор группы (prefix задаёт callback-префикс)."""
-    buttons = [
-        [InlineKeyboardButton(text=g, callback_data=f"{prefix}:{g}")]
-        for g in GROUPS
-    ]
+    buttons = [[InlineKeyboardButton(text=g, callback_data=f"{prefix}:{g}")] for g in GROUPS]
     if include_back:
         buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="profile:back")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -131,7 +128,11 @@ def schedule_collapse_kb(date_iso: str) -> InlineKeyboardMarkup:
     """Кнопка 'Свернуть' под подробным расписанием."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Свернуть", callback_data=f"schedule_collapse:{date_iso}")]
+            [
+                InlineKeyboardButton(
+                    text="📋 Свернуть", callback_data=f"schedule_collapse:{date_iso}"
+                )
+            ]
         ]
     )
 
@@ -139,18 +140,14 @@ def schedule_collapse_kb(date_iso: str) -> InlineKeyboardMarkup:
 def extra_detail_kb() -> InlineKeyboardMarkup:
     """Кнопка 'Подробнее' под кратким расписанием доп. занятий."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📖 Подробнее", callback_data="extra_detail")]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="📖 Подробнее", callback_data="extra_detail")]]
     )
 
 
 def extra_collapse_kb() -> InlineKeyboardMarkup:
     """Кнопка 'Свернуть' под подробным расписанием доп. занятий."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Свернуть", callback_data="extra_collapse")]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="📋 Свернуть", callback_data="extra_collapse")]]
     )
 
 
@@ -165,18 +162,24 @@ def extra_select_kb(
     buttons: list[list[InlineKeyboardButton]] = []
     for index, option in enumerate(options):
         mark = "✅" if option["_key"] in selected else "⬜"
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"{mark} {option['_label']}",
-                callback_data=f"{prefix}:toggle:{index}",
-            )
-        ])
-    buttons.append([
-        InlineKeyboardButton(text="✅ Готово", callback_data=f"{prefix}:done"),
-    ])
-    buttons.append([
-        InlineKeyboardButton(text="Без доп. занятий", callback_data=f"{prefix}:none"),
-    ])
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{mark} {option['_label']}",
+                    callback_data=f"{prefix}:toggle:{index}",
+                )
+            ]
+        )
+    buttons.append(
+        [
+            InlineKeyboardButton(text="✅ Готово", callback_data=f"{prefix}:done"),
+        ]
+    )
+    buttons.append(
+        [
+            InlineKeyboardButton(text="Без доп. занятий", callback_data=f"{prefix}:none"),
+        ]
+    )
     if include_back:
         buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="profile:back")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -205,9 +208,7 @@ def daily_notify_kb(prefix: str = "daily_notify") -> InlineKeyboardMarkup:
 def daily_time_back_kb(callback_data: str) -> InlineKeyboardMarkup:
     """Назад с экрана ввода времени ежедневного уведомления."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data=callback_data)]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=callback_data)]]
     )
 
 
@@ -235,10 +236,26 @@ def settings_menu_kb(
     alert_label = "вкл." if change_alert_enabled else "выкл."
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"📱 Вид расписания: {view_label}", callback_data="settings:view")],
-            [InlineKeyboardButton(text=f"📌 Доп. занятия: {extra_label}", callback_data="settings:extra")],
-            [InlineKeyboardButton(text=f"☀️ Ежедневное расписание: {notify_label}", callback_data="settings:daily")],
-            [InlineKeyboardButton(text=f"🚨 Алерты изменений: {alert_label}", callback_data="settings:alert")],
+            [
+                InlineKeyboardButton(
+                    text=f"📱 Вид расписания: {view_label}", callback_data="settings:view"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"📌 Доп. занятия: {extra_label}", callback_data="settings:extra"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"☀️ Ежедневное расписание: {notify_label}", callback_data="settings:daily"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🚨 Алерты изменений: {alert_label}", callback_data="settings:alert"
+                )
+            ],
             [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="settings:main")],
         ]
     )
@@ -293,18 +310,22 @@ def settings_daily_notify_kb(enabled: bool, sound: bool) -> InlineKeyboardMarkup
     """Настройки ежедневного уведомления."""
     buttons: list[list[InlineKeyboardButton]] = []
     if enabled:
-        buttons.extend([
-            [InlineKeyboardButton(text="Выключить", callback_data="settings:daily_enabled:0")],
-            [InlineKeyboardButton(text="Изменить время", callback_data="settings:daily_time")],
+        buttons.extend(
             [
-                InlineKeyboardButton(
-                    text=("🔔 Со звуком" if sound else "🔕 Без звука"),
-                    callback_data=f"settings:daily_sound:{0 if sound else 1}",
-                )
-            ],
-        ])
+                [InlineKeyboardButton(text="Выключить", callback_data="settings:daily_enabled:0")],
+                [InlineKeyboardButton(text="Изменить время", callback_data="settings:daily_time")],
+                [
+                    InlineKeyboardButton(
+                        text=("🔔 Со звуком" if sound else "🔕 Без звука"),
+                        callback_data=f"settings:daily_sound:{0 if sound else 1}",
+                    )
+                ],
+            ]
+        )
     else:
-        buttons.append([InlineKeyboardButton(text="Включить", callback_data="settings:daily_enabled:1")])
+        buttons.append(
+            [InlineKeyboardButton(text="Включить", callback_data="settings:daily_enabled:1")]
+        )
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -313,17 +334,21 @@ def settings_change_alert_kb(enabled: bool, sound: bool) -> InlineKeyboardMarkup
     """Настройки алертов об изменениях расписания."""
     buttons: list[list[InlineKeyboardButton]] = []
     if enabled:
-        buttons.extend([
-            [InlineKeyboardButton(text="Выключить", callback_data="settings:alert_enabled:0")],
+        buttons.extend(
             [
-                InlineKeyboardButton(
-                    text=("🔔 Со звуком" if sound else "🔕 Без звука"),
-                    callback_data=f"settings:alert_sound:{0 if sound else 1}",
-                )
-            ],
-        ])
+                [InlineKeyboardButton(text="Выключить", callback_data="settings:alert_enabled:0")],
+                [
+                    InlineKeyboardButton(
+                        text=("🔔 Со звуком" if sound else "🔕 Без звука"),
+                        callback_data=f"settings:alert_sound:{0 if sound else 1}",
+                    )
+                ],
+            ]
+        )
     else:
-        buttons.append([InlineKeyboardButton(text="Включить", callback_data="settings:alert_enabled:1")])
+        buttons.append(
+            [InlineKeyboardButton(text="Включить", callback_data="settings:alert_enabled:1")]
+        )
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -331,9 +356,7 @@ def settings_change_alert_kb(enabled: bool, sound: bool) -> InlineKeyboardMarkup
 def alert_delete_kb() -> InlineKeyboardMarkup:
     """Кнопка удаления алерта из чата."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Скрыть", callback_data="alert:delete")]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="Скрыть", callback_data="alert:delete")]]
     )
 
 
@@ -348,7 +371,9 @@ def starosta_week_dates_kb(dates: list[dict], next_week: bool) -> InlineKeyboard
     ]
     switch_text = "Текущая неделя" if next_week else "Следующая неделя"
     switch_value = 0 if next_week else 1
-    buttons.append([InlineKeyboardButton(text=switch_text, callback_data=f"starosta_week:{switch_value}")])
+    buttons.append(
+        [InlineKeyboardButton(text=switch_text, callback_data=f"starosta_week:{switch_value}")]
+    )
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="starosta_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -367,11 +392,27 @@ def starosta_lesson_actions_kb() -> InlineKeyboardMarkup:
     """Действия с выбранной парой."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Изменить аудиторию", callback_data="starosta_action:room")],
-            [InlineKeyboardButton(text="🔗 Добавить ссылку на онлайн", callback_data="starosta_action:online")],
+            [
+                InlineKeyboardButton(
+                    text="✏️ Изменить аудиторию", callback_data="starosta_action:room"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔗 Добавить ссылку на онлайн", callback_data="starosta_action:online"
+                )
+            ],
             [InlineKeyboardButton(text="❌ Отменить пару", callback_data="starosta_action:cancel")],
-            [InlineKeyboardButton(text="📝 Добавить примечание", callback_data="starosta_action:note")],
-            [InlineKeyboardButton(text="↩️ Откатить изменения", callback_data="starosta_action:rollback")],
+            [
+                InlineKeyboardButton(
+                    text="📝 Добавить примечание", callback_data="starosta_action:note"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="↩️ Откатить изменения", callback_data="starosta_action:rollback"
+                )
+            ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="starosta_back:lessons")],
         ]
     )
@@ -405,7 +446,11 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     """Меню администратора."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="👑 Назначить старосту", callback_data="admin:set_starosta")],
+            [
+                InlineKeyboardButton(
+                    text="👑 Назначить старосту", callback_data="admin:set_starosta"
+                )
+            ],
             [InlineKeyboardButton(text="🚫 Снять старосту", callback_data="admin:remove_starosta")],
         ]
     )
@@ -435,9 +480,9 @@ def admin_users_kb(users: list[dict]) -> InlineKeyboardMarkup:
     buttons = []
     for u in users:
         label = _admin_user_label(u)
-        buttons.append([
-            InlineKeyboardButton(text=label, callback_data=f"admin_set_starosta:{u['user_id']}")
-        ])
+        buttons.append(
+            [InlineKeyboardButton(text=label, callback_data=f"admin_set_starosta:{u['user_id']}")]
+        )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -446,7 +491,7 @@ def admin_starostas_kb(users: list[dict]) -> InlineKeyboardMarkup:
     buttons = []
     for u in users:
         label = _admin_user_label(u)
-        buttons.append([
-            InlineKeyboardButton(text=label, callback_data=f"admin_rm_starosta:{u['user_id']}")
-        ])
+        buttons.append(
+            [InlineKeyboardButton(text=label, callback_data=f"admin_rm_starosta:{u['user_id']}")]
+        )
     return InlineKeyboardMarkup(inline_keyboard=buttons)

@@ -164,7 +164,9 @@ async def _edit_admin_body(
 
 async def _send_admin_menu(message: Message, state: FSMContext) -> None:
     """Показать корневую панель админа с reply-кнопкой Назад."""
-    header = await message.answer(title("Панель администратора"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE)
+    header = await message.answer(
+        title("Панель администратора"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
+    )
     body = await message.answer(
         titled("Действие", "Выбери действие."),
         reply_markup=admin_menu_kb(),

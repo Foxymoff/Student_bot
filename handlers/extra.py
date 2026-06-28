@@ -67,7 +67,9 @@ async def on_extra_menu(message: Message, state: FSMContext) -> None:
     await delete_user_message(message)
 
     text = _extra_week_text(user)
-    header = await message.answer(title("Доп. занятия"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE)
+    header = await message.answer(
+        title("Доп. занятия"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
+    )
     reply_markup = extra_detail_kb() if _has_extra_schedule(user) else None
     body = await message.answer(text, reply_markup=reply_markup, parse_mode="HTML")
     await replace_ui_messages(
@@ -137,7 +139,9 @@ async def cmd_extra(message: Message, state: FSMContext) -> None:
         )
         return
     await delete_user_message(message)
-    sent = await message.answer(_profile_text(user), reply_markup=profile_menu_kb(), parse_mode=HTML_PARSE_MODE)
+    sent = await message.answer(
+        _profile_text(user), reply_markup=profile_menu_kb(), parse_mode=HTML_PARSE_MODE
+    )
     await replace_ui_messages(
         message.bot,
         message.chat.id,
@@ -196,7 +200,9 @@ async def on_extra_edit(callback: CallbackQuery, state: FSMContext) -> None:
     role = updated_user.get("role", "student") if updated_user else "student"
     sent = await callback.message.answer(
         MAIN_MENU_TEXT,
-        reply_markup=main_menu_kb(role, not bool(updated_user and updated_user.get("extra_in_schedule"))),
+        reply_markup=main_menu_kb(
+            role, not bool(updated_user and updated_user.get("extra_in_schedule"))
+        ),
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(

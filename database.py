@@ -138,9 +138,7 @@ async def get_user(user_id: int) -> dict | None:
     """Получить данные пользователя по user_id."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM users WHERE user_id = ?", (user_id,)
-        )
+        cursor = await db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
 
@@ -309,9 +307,7 @@ async def get_users_by_role(role: str) -> list[dict]:
     _ensure_role(role)
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM users WHERE role = ?", (role,)
-        )
+        cursor = await db.execute("SELECT * FROM users WHERE role = ?", (role,))
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
