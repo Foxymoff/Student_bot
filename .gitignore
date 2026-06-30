@@ -5,6 +5,9 @@
 
 # Python
 __pycache__/
+.pytest_cache/
+.ruff_cache/
+pytest-cache-files-*/
 *.py[cod]
 *.pyo
 *.pyd
