@@ -1,190 +1,211 @@
-# Ассистент студента
+# Student Bot
 
-Telegram-бот для студентов с расписанием занятий, учетом подгрупп, доп. занятиями, уведомлениями и панелями для старосты и администратора.
+[![CI](https://github.com/Foxymoff/Student_bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Foxymoff/Student_bot/actions/workflows/ci.yml)
 
-Проект написан на `aiogram 3`, хранит пользовательские настройки и временные изменения расписания в SQLite, а сами расписания читает из JSON-файлов в папке `data/`.
+Telegram bot for students that provides schedule access, group and subgroup selection, extra classes, notifications, and role-based tools for group leaders and administrators.
 
-## Возможности
+## Problem
 
-- Расписание на сегодня, завтра, текущую и следующую неделю.
-- Автоматическое определение четной/нечетной учебной недели.
-- Фильтрация занятий по подгруппам информатики и английского.
-- Просмотр расписания другой группы без смены профиля.
-- Выбор доп. занятий и показ их отдельно или внутри основного расписания.
-- Краткий и подробный вид расписания.
-- Персональные ежедневные уведомления в выбранное время.
-- Алерты об изменениях: отмена пары, смена аудитории, онлайн-ссылка.
-- Панель старосты для оперативного изменения расписания.
-- Админ-панель для назначения и снятия старост.
-- Полезные ссылки на спорткомплекс и кампус.
+Students often have to check schedules, subgroup-specific classes, extra lessons, and last-minute changes across different sources. This bot centralizes schedule access in Telegram and helps students quickly get relevant information for their group, subgroup, and selected extra classes.
 
-## Поддерживаемые группы
+The project also gives group leaders a simple way to publish schedule changes, such as cancelled lessons, classroom updates, online links, and notes.
+
+## What This Project Demonstrates
+
+- Building an asynchronous Telegram bot with `aiogram 3`.
+- Storing user settings and schedule overrides in SQLite.
+- Working with structured JSON schedule data.
+- Role-based access for students, group leaders, and administrators.
+- Dockerized deployment with persistent bot data.
+- Automated linting, formatting, and tests through GitHub Actions.
+
+## Features
+
+- View the schedule for today, tomorrow, the current week, or the next week.
+- Detect even and odd academic weeks automatically.
+- Filter lessons by informatics and English subgroups.
+- View another group's schedule without changing the user profile.
+- Select extra classes and show them separately or inside the main schedule.
+- Switch between compact and detailed schedule output.
+- Configure personal daily schedule notifications.
+- Receive alerts about schedule changes.
+- Use group leader tools to update lessons quickly.
+- Use admin tools to assign and remove group leaders.
+- Open useful campus and sports complex links from Telegram.
+
+## Supported Groups
 
 - `ИСП-25-1`
 - `ИСП-25-2`
 - `МР-25`
 
-Файлы расписаний подключаются в [config.py](config.py):
+Schedule files are configured in [config.py](config.py):
 
-- основное расписание: `data/isp_25_1.json`, `data/isp_25_2.json`, `data/mr_25.json`
-- доп. занятия: `data/isp_25_1_extra.json`, `data/isp_25_2_extra.json`, `data/mr_25_extra.json`
+- main schedules: `data/isp_25_1.json`, `data/isp_25_2.json`, `data/mr_25.json`
+- extra classes: `data/isp_25_1_extra.json`, `data/isp_25_2_extra.json`, `data/mr_25_extra.json`
 
-## Стек
+## Tech Stack
 
 - Python 3.11+
 - aiogram 3
-- SQLite + aiosqlite
+- SQLite with aiosqlite
 - APScheduler
 - python-dotenv
-- Docker / Docker Compose
+- Docker and Docker Compose
+- Ruff
+- Pytest
+- GitHub Actions
 
-## Быстрый старт
+## Local Setup
 
-1. Клонируйте репозиторий и перейдите в папку проекта:
+Clone the repository and open the project directory:
 
-   ```bash
-   git clone https://github.com/Foxymoff/Student_bot.git
-   cd Student_bot
-   ```
+```bash
+git clone https://github.com/Foxymoff/Student_bot.git
+cd Student_bot
+```
 
-2. Создайте виртуальное окружение:
+Create a virtual environment:
 
-   ```bash
-   python -m venv .venv
-   ```
+```bash
+python -m venv .venv
+```
 
-3. Активируйте окружение.
+Activate it.
 
-   Windows PowerShell:
+Windows PowerShell:
 
-   ```powershell
-   .\.venv\Scripts\Activate.ps1
-   ```
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
 
-   Linux/macOS:
+Linux/macOS:
 
-   ```bash
-   source .venv/bin/activate
-   ```
+```bash
+source .venv/bin/activate
+```
 
-4. Установите зависимости:
+Install dependencies:
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
 
-5. Создайте `.env` из примера:
+Create an environment file from the example:
 
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+cp .env.example .env
+```
 
-   В Windows PowerShell:
+Windows PowerShell:
 
-   ```powershell
-   Copy-Item .env.example .env
-   ```
+```powershell
+Copy-Item .env.example .env
+```
 
-6. Заполните `.env`:
+Fill in `.env`:
 
-   ```env
-   BOT_TOKEN=123456:telegram-bot-token
-   ADMIN_PASSWORD=strong-admin-password
-   ADMIN_USER_IDS=123456789
-   ```
+```env
+BOT_TOKEN=123456:telegram-bot-token
+ADMIN_PASSWORD=strong-admin-password
+ADMIN_USER_IDS=123456789
+```
 
-7. Запустите бота:
+Run the bot:
 
-   ```bash
-   python main.py
-   ```
+```bash
+python main.py
+```
 
-При первом запуске рядом с проектом будет создан файл `bot.db`, если не задан `DB_DIR`.
+On the first run, the bot creates `bot.db` in the project directory unless `DB_DIR` is set.
 
-## Переменные окружения
+## Environment Variables
 
-| Переменная | Обязательна | Описание |
+| Variable | Required | Description |
 | --- | --- | --- |
-| `BOT_TOKEN` | да | Токен Telegram-бота от [@BotFather](https://t.me/BotFather). |
-| `ADMIN_PASSWORD` | нет | Пароль для команды `/admin <пароль>`. Без него выдача прав администратора отключена. |
-| `ADMIN_USER_IDS` | нет | Список Telegram ID через запятую, которым разрешена команда `/admin`. Рекомендуется задавать в продакшене. |
-| `DB_DIR` | нет | Директория для SQLite-файла `bot.db`. Полезно для Docker volume. |
-| `EXTRA_DATA_DIR` | нет | Директория с JSON-файлами доп. занятий. По умолчанию используется `data/`. |
+| `BOT_TOKEN` | Yes | Telegram bot token from [@BotFather](https://t.me/BotFather). |
+| `ADMIN_PASSWORD` | No | Password for the `/admin <password>` command. If it is not set, password-based admin access is disabled. |
+| `ADMIN_USER_IDS` | No | Comma-separated Telegram user IDs allowed to use `/admin`. Recommended for production. |
+| `DB_DIR` | No | Directory where `bot.db` is created. Useful for Docker volumes. |
+| `EXTRA_DATA_DIR` | No | Directory with extra class JSON files. Defaults to `data/`. |
 
-## Запуск через Docker
+## Running with Docker
 
-Собрать и запустить контейнер:
+Build and start the container:
 
 ```bash
 docker compose up -d --build
 ```
 
-Посмотреть логи:
+View logs:
 
 ```bash
 docker compose logs -f bot
 ```
 
-Остановить:
+Stop the bot:
 
 ```bash
 docker compose down
 ```
 
-В Docker база хранится в volume `bot-data`, потому что в `docker-compose.yml` задан `DB_DIR=/data`.
+In Docker, the database is stored in the `bot-data` volume because `docker-compose.yml` sets `DB_DIR=/data`.
 
-## Команды и разделы бота
+## Bot Commands and Sections
 
-| Команда / кнопка | Описание |
+| Command / Button | Description |
 | --- | --- |
-| `/start` | Первичная регистрация, выбор группы и подгрупп. |
-| `/profile` | Учебный профиль: группа, подгруппы, доп. занятия. |
-| `/groups` | Просмотр расписания другой группы. |
-| `/settings` | Вид расписания, доп. занятия, ежедневные уведомления, алерты. |
-| `/help` | Контакт для вопросов и багов. |
-| `/extra` | Алиас для настройки доп. занятий через профиль. |
-| `/admin <пароль>` | Выдать себе права администратора. |
-| `📅 Расписание` | Расписание на выбранный период. |
-| `📌 Доп. занятия` | Недельное расписание выбранных доп. занятий. |
-| `🔗 Полезные ссылки` | Ссылки на сервисы кампуса. |
-| `📋 Староста` | Панель изменения расписания для старосты и админа. |
-| `⚙️ Админ` | Назначение и снятие старост. |
+| `/start` | Initial registration, group selection, and subgroup selection. |
+| `/profile` | Study profile: group, subgroups, and extra classes. |
+| `/groups` | View another group's schedule. |
+| `/settings` | Schedule view, extra classes, daily notifications, and alerts. |
+| `/help` | Contact information for questions and bug reports. |
+| `/extra` | Shortcut for extra class settings through the profile flow. |
+| `/admin <password>` | Grant admin access to the current user. |
+| `📅 Расписание` | Schedule for the selected period. |
+| `📌 Доп. занятия` | Weekly schedule for selected extra classes. |
+| `🔗 Полезные ссылки` | Links to campus services. |
+| `📋 Староста` | Schedule editing panel for group leaders and admins. |
+| `⚙️ Админ` | Assign and remove group leaders. |
 
-## Роли
+## Roles
 
-- `student` — обычный пользователь, видит расписание и свои настройки.
-- `starosta` — может менять аудитории, отменять пары, добавлять онлайн-ссылки и примечания для своей группы.
-- `admin` — может назначать и снимать старост, также имеет доступ к панели старосты.
+- `student` - regular user who can view schedules and manage personal settings.
+- `starosta` - group leader who can cancel lessons, change classrooms, add online links, and add notes for their group.
+- `admin` - user who can assign and remove group leaders and also access group leader tools.
 
-Права администратора выдаются командой `/admin <пароль>`, если в `.env` задан `ADMIN_PASSWORD`.
-Для публичного бота также задайте `ADMIN_USER_IDS`, чтобы пароль нельзя было перебирать с чужих Telegram-аккаунтов.
-После выдачи первого администратора можно очистить `ADMIN_PASSWORD` и назначать новых старост через админ-панель.
+Admin access can be granted with `/admin <password>` when `ADMIN_PASSWORD` is set.
+For a public bot, `ADMIN_USER_IDS` should also be configured so the password cannot be used from unknown Telegram accounts.
+After the first admin is created, `ADMIN_PASSWORD` can be removed and new group leaders can be managed through the admin panel.
 
-## Структура проекта
+## Project Structure
 
 ```text
 .
-├── data/                  # JSON-файлы основного расписания и доп. занятий
-├── handlers/              # обработчики команд, кнопок и callback-запросов
-│   ├── admin.py           # админ-панель
-│   ├── extra.py           # доп. занятия
-│   ├── info.py            # информационные разделы
-│   ├── schedule.py        # основное расписание
-│   ├── starosta.py        # панель старосты
-│   └── start.py           # регистрация, профиль, настройки
-├── config.py              # настройки, группы, пути, справочники
-├── database.py            # SQLite-схема и запросы
-├── extra_schedule.py      # загрузка и форматирование доп. занятий
-├── keyboards.py           # reply/inline-клавиатуры
-├── main.py                # точка входа
-├── scheduler.py           # фоновые ежедневные уведомления
+├── data/                  # JSON files with main schedules and extra classes
+├── docs/                  # testing and project documentation
+├── handlers/              # command, button, and callback handlers
+│   ├── admin.py           # admin panel
+│   ├── extra.py           # extra classes
+│   ├── info.py            # informational sections
+│   ├── schedule.py        # main schedule views
+│   ├── starosta.py        # group leader panel
+│   └── start.py           # registration, profile, and settings
+├── tests/                 # pytest test suite
+├── config.py              # settings, groups, paths, dictionaries
+├── database.py            # SQLite schema and queries
+├── extra_schedule.py      # loading and formatting extra classes
+├── keyboards.py           # reply and inline keyboards
+├── main.py                # application entry point
+├── scheduler.py           # background daily notifications
 ├── Dockerfile
 └── docker-compose.yml
 ```
 
-## Формат расписаний
+## Schedule Data Format
 
-Основное расписание хранится в JSON с разделением по типу недели:
+The main schedule is stored as JSON and separated by academic week type:
 
 ```json
 {
@@ -200,32 +221,63 @@ docker compose down
 }
 ```
 
-Доп. занятия используют похожую структуру, но вместо `lessons` применяется массив `extra`.
+Extra class files use a similar structure, but store classes in an `extra` array instead of `lessons`.
 
-## Публикация на GitHub
+## Testing and Code Quality
 
-Перед публикацией проверьте, что в репозиторий не попадают секреты и локальные артефакты:
+The project uses Ruff for linting and formatting, and Pytest for automated tests.
 
-```bash
-git status --short
-```
-
-Файл `.gitignore` уже исключает `.env`, виртуальные окружения, SQLite-базы, кеши Python, IDE-файлы и логи.
-Файл `.dockerignore` исключает секреты и локальные артефакты из Docker build context.
-
-Типичный сценарий первого пуша:
+Run all local checks before opening a pull request:
 
 ```bash
-git add .
-git commit -m "Prepare student bot for GitHub"
-git branch -M main
-git remote add origin https://github.com/Foxymoff/Student_bot.git
-git push -u origin main
+ruff check .
+ruff format --check .
+pytest -v
 ```
 
-В этом проекте `origin` уже настроен на `https://github.com/Foxymoff/Student_bot.git`, поэтому обычно достаточно:
+Apply formatting if needed:
 
 ```bash
-git remote -v
-git push
+ruff format .
 ```
+
+Automated tests currently cover selected helper functions and business logic that do not require Telegram API access or production data. Telegram-specific flows are checked through manual smoke testing with a separate test bot.
+
+Additional manual testing notes are available in [docs/TESTING.md](docs/TESTING.md).
+
+## Continuous Integration
+
+GitHub Actions CI runs on pull requests and pushes to `main`.
+
+The CI workflow checks:
+
+- Ruff linting.
+- Ruff formatting.
+- Pytest test suite.
+
+This helps catch linting, formatting, and test failures before changes are merged.
+
+## Development Workflow
+
+The project follows a simple contribution workflow:
+
+1. Create an issue or define a task.
+2. Create a separate branch.
+3. Make changes.
+4. Run local checks.
+5. Open a pull request.
+6. Wait for CI checks.
+7. Merge into `main`.
+
+## Project Status
+
+The project is actively being improved.
+
+Current focus:
+
+- Improving code quality.
+- Expanding automated tests.
+- Maintaining CI checks.
+- Improving project structure and documentation.
+
+The bot is designed for practical student schedule access and is developed with incremental improvements instead of claiming full production readiness.
