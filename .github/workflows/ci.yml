@@ -42,3 +42,26 @@ jobs:
 
       - name: Run tests
         run: pytest -v
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+
+    env:
+      BOT_TOKEN: test-token
+      ADMIN_PASSWORD: test-password
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create test env file
+        run: |
+          printf "BOT_TOKEN=%s\n" "$BOT_TOKEN" > .env
+          printf "ADMIN_PASSWORD=%s\n" "$ADMIN_PASSWORD" >> .env
+
+      - name: Validate Docker Compose config
+        run: docker compose config
+
+      - name: Build Docker image
+        run: docker compose build
