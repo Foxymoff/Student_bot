@@ -30,12 +30,19 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
-Run the same checks that CI runs:
+Run the Python checks:
 
 ```bash
 ruff check .
 ruff format --check .
 pytest -v
+```
+
+For full CI parity, also run the Docker checks when Docker is available locally:
+
+```bash
+docker compose config
+docker compose build
 ```
 
 If the formatting check fails, apply formatting and run the checks again:
@@ -55,12 +62,19 @@ GitHub Actions runs on:
 - Pull requests.
 - Pushes to `main`.
 
-The CI workflow uses Python 3.14 and runs:
+The CI workflow has a Python job that uses Python 3.14 and runs:
 
 ```bash
 ruff check .
 ruff format --check .
 pytest -v
+```
+
+It also has a Docker job that runs:
+
+```bash
+docker compose config
+docker compose build
 ```
 
 Required environment variables are stubbed in CI:
@@ -70,7 +84,7 @@ BOT_TOKEN=test-token
 ADMIN_PASSWORD=test-password
 ```
 
-CI does not start the Telegram bot and does not call the Telegram API.
+CI does not start the Telegram bot and does not call the Telegram API. The Docker job validates the Compose configuration and verifies that the image can be built.
 
 ## Test Environments
 
