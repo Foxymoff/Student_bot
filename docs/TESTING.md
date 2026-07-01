@@ -9,10 +9,15 @@ The bot has two testing layers:
 
 ## Current Coverage
 
-Automated tests currently cover helper-level behavior that does not require Telegram API access or production data:
+Automated tests currently cover helper-level behavior and selected business logic that do not require Telegram API access or production data:
 
+- Environment allowlist parsing in `config.py`.
+- User settings, notification settings, and schedule override logic in `database.py`.
 - Extra class choice parsing in `extra_schedule.py`.
+- Extra class keys, option deduplication, date/week selection, and formatting in `extra_schedule.py`.
+- Schedule subgroup filtering, override application, gap filling, text splitting, and formatting in `handlers/schedule.py`.
 - Selected group leader helper functions in `handlers/starosta.py`.
+- UI message id normalization in `ui_messages.py`.
 
 Telegram-specific flows are still validated manually with a separate test bot.
 
