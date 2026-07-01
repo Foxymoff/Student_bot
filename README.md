@@ -17,7 +17,7 @@ The project also gives group leaders a simple way to publish schedule changes, s
 - Working with structured JSON schedule data.
 - Role-based access for students, group leaders, and administrators.
 - Dockerized deployment with persistent bot data.
-- Automated linting, formatting, and tests through GitHub Actions.
+- Automated linting, formatting, tests, and Docker build checks through GitHub Actions.
 
 ## Features
 
@@ -254,8 +254,10 @@ The CI workflow checks:
 - Ruff linting.
 - Ruff formatting.
 - Pytest test suite.
+- Docker Compose configuration.
+- Docker image build.
 
-This helps catch linting, formatting, and test failures before changes are merged.
+This helps catch linting, formatting, test, and Docker build failures before changes are merged.
 
 ## Development Workflow
 
