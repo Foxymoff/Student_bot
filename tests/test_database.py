@@ -1,5 +1,4 @@
 import json
-import sqlite3
 
 import pytest
 import pytest_asyncio
@@ -10,54 +9,12 @@ GROUP_A = "ИСП-25-1"
 GROUP_B = "ИСП-25-2"
 
 
-class AsyncCursor:
-    def __init__(self, cursor):
-        self._cursor = cursor
-        self.rowcount = cursor.rowcount
-
-    async def fetchone(self):
-        return self._cursor.fetchone()
-
-    async def fetchall(self):
-        return self._cursor.fetchall()
-
-
-class AsyncConnection:
-    def __init__(self, connection):
-        self._connection = connection
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *_exc_info):
-        return False
-
-    @property
-    def row_factory(self):
-        return self._connection.row_factory
-
-    @row_factory.setter
-    def row_factory(self, value):
-        self._connection.row_factory = value
-
-    async def execute(self, sql, parameters=()):
-        return AsyncCursor(self._connection.execute(sql, parameters))
-
-    async def commit(self):
-        self._connection.commit()
-
-
 @pytest_asyncio.fixture
-async def temp_db(monkeypatch):
-    connection = sqlite3.connect(":memory:")
-    async_connection = AsyncConnection(connection)
-
-    monkeypatch.setattr(database.aiosqlite, "connect", lambda _path: async_connection)
+async def temp_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot.db"
+    monkeypatch.setattr(database, "DB_PATH", db_path)
     await database.init_db()
-    try:
-        yield connection
-    finally:
-        connection.close()
+    return db_path
 
 
 @pytest.mark.asyncio
