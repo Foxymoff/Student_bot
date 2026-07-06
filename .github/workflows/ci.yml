@@ -40,8 +40,8 @@ jobs:
       - name: Check Ruff formatting
         run: ruff format --check .
 
-      - name: Run tests
-        run: pytest -v
+      - name: Run tests with coverage
+        run: pytest -v --cov=. --cov-report=term-missing
 
   docker-build:
     name: Docker build
