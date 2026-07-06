@@ -232,7 +232,7 @@ Run all local checks before opening a pull request:
 ```bash
 ruff check .
 ruff format --check .
-pytest -v
+pytest -v --cov=. --cov-report=term-missing
 ```
 
 Apply formatting if needed:

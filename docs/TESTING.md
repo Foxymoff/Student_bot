@@ -35,7 +35,7 @@ Run the Python checks:
 ```bash
 ruff check .
 ruff format --check .
-pytest -v
+pytest -v --cov=. --cov-report=term-missing
 ```
 
 For full CI parity, also run the Docker checks when Docker is available locally:
@@ -50,7 +50,7 @@ If the formatting check fails, apply formatting and run the checks again:
 ```bash
 ruff format .
 ruff check .
-pytest -v
+pytest -v --cov=. --cov-report=term-missing
 ```
 
 Pytest configuration is stored in `pyproject.toml`. The test suite is located in `tests/`.
@@ -67,7 +67,7 @@ The CI workflow has a Python job that uses Python 3.14 and runs:
 ```bash
 ruff check .
 ruff format --check .
-pytest -v
+pytest -v --cov=. --cov-report=term-missing
 ```
 
 It also has a Docker job that runs:

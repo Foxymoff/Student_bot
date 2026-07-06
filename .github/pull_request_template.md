@@ -6,7 +6,7 @@
 
 - [ ] Ran `ruff check .`
 - [ ] Ran `ruff format --check .`
-- [ ] Ran `pytest -v`
+- [ ] Ran `pytest -v --cov=. --cov-report=term-missing`
 - [ ] Ran `docker compose config`, if Docker or Compose changed
 - [ ] Ran `docker compose build`, if Docker or Compose changed
 - [ ] Built and started the bot with Docker Compose, if runtime behavior changed
