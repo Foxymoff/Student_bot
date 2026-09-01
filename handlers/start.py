@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from config import ENG_SUBGROUPS, EXTRA_ENABLED
+from config import ENG_SUBGROUPS, EXTRA_ENABLED, course_of
 from database import (
     add_user,
     get_user,
@@ -146,8 +146,11 @@ def _profile_text(user: dict) -> str:
     eng_label = _eng_sg_label(user["group_name"], sg_eng)
     extra_count = len(parse_extra_choices(user.get("extra_choices")))
     extra_label = f"{extra_count} выбрано" if extra_count else "не выбраны"
+    course = course_of(user["group_name"])
+    course_line = f"Курс · {course.split()[0]}\n" if course else ""
     return (
         f"{title('Учебный профиль')}\n\n"
+        f"{course_line}"
         f"Группа · {esc(user['group_name'])}\n"
         f"Информатика · {sg_inf} подгр.\n"
         f"Английский · {esc(eng_label)}\n"
