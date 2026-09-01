@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from config import ROOM_SHORT, SUBJECT_SHORT, app_today
+from config import ROOM_SHORT, SUBJECT_SHORT, app_today, is_english_subject
 from database import (
     add_override,
     delete_lesson_overrides,
@@ -185,8 +185,7 @@ def _lesson_scope(subgroup: int | None) -> str:
 
 def _is_english_lesson(lesson: dict) -> bool:
     """Является ли пара английским."""
-    subject = str(lesson.get("subject") or "").lower()
-    return bool(lesson.get("subgroups")) or "иностранн" in subject or "английск" in subject
+    return bool(lesson.get("subgroups")) or is_english_subject(lesson.get("subject"))
 
 
 def _user_matches_subgroup(user: dict, lesson: dict, subgroup: int | None) -> bool:

@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from config import ENG_SUBGROUPS
+from config import ENG_SUBGROUPS, EXTRA_ENABLED, course_of
 from database import (
     add_user,
     get_user,
@@ -25,6 +25,7 @@ from database import (
 from extra_schedule import get_extra_options, parse_extra_choices
 from keyboards import (
     back_kb,
+    course_select_kb,
     daily_notify_kb,
     daily_notify_sound_kb,
     daily_time_back_kb,
@@ -67,6 +68,7 @@ def _eng_sg_label(group_name: str, sg: int) -> str:
 
 
 class Registration(StatesGroup):
+    course = State()
     group = State()
     subgroup_inf = State()
     subgroup_eng = State()
@@ -85,6 +87,7 @@ class Settings(StatesGroup):
 
 
 class Profile(StatesGroup):
+    course = State()
     group = State()
     subgroup_inf = State()
     subgroup_eng = State()
@@ -143,8 +146,11 @@ def _profile_text(user: dict) -> str:
     eng_label = _eng_sg_label(user["group_name"], sg_eng)
     extra_count = len(parse_extra_choices(user.get("extra_choices")))
     extra_label = f"{extra_count} выбрано" if extra_count else "не выбраны"
+    course = course_of(user["group_name"])
+    course_line = f"Курс · {course.split()[0]}\n" if course else ""
     return (
         f"{title('Учебный профиль')}\n\n"
+        f"{course_line}"
         f"Группа · {esc(user['group_name'])}\n"
         f"Информатика · {sg_inf} подгр.\n"
         f"Английский · {esc(eng_label)}\n"
@@ -291,12 +297,12 @@ async def _show_profile_callback(callback: CallbackQuery, state: FSMContext) -> 
 
 
 async def _open_profile_group(callback: CallbackQuery, state: FSMContext, user: dict) -> None:
-    """Открыть выбор группы внутри учебного профиля."""
-    await state.set_state(Profile.group)
+    """Открыть выбор курса (а затем группы) внутри учебного профиля."""
+    await state.set_state(Profile.course)
     await state.update_data(profile_action="group")
     await callback.message.edit_text(
-        titled("Смена группы", f"Сейчас · {esc(user['group_name'])}\n\nВыбери новую группу."),
-        reply_markup=group_select_kb("profile_group", include_back=True),
+        titled("Смена группы", f"Сейчас · {esc(user['group_name'])}\n\nВыбери курс."),
+        reply_markup=course_select_kb("profile_course", include_back=True, back_cb="profile:back"),
         parse_mode=HTML_PARSE_MODE,
     )
     await register_ui_messages(
@@ -340,7 +346,7 @@ async def _open_profile_extra(
     selected: list[str] | None = None,
 ) -> bool:
     """Открыть выбор доп. занятий внутри учебного профиля."""
-    options = get_extra_options(user["group_name"])
+    options = get_extra_options(user["group_name"]) if EXTRA_ENABLED else []
     if not options:
         await update_user_extra_choices(callback.from_user.id, [])
         await update_user_extra_in_schedule(callback.from_user.id, False)
@@ -382,8 +388,8 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         await _replace_with_main_menu(message, state, user)
     else:
         sent = await message.answer(
-            titled("Первичная настройка", "Выбери свою группу."),
-            reply_markup=group_select_kb(),
+            titled("Первичная настройка", "Выбери курс."),
+            reply_markup=course_select_kb("reg_course"),
             parse_mode=HTML_PARSE_MODE,
         )
         await replace_ui_messages(
@@ -395,7 +401,35 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             clear_state=True,
             last_bot_msg=sent.message_id,
         )
-        await state.set_state(Registration.group)
+        await state.set_state(Registration.course)
+
+
+@router.callback_query(Registration.course, F.data.startswith("reg_course:"))
+async def on_registration_course(callback: CallbackQuery, state: FSMContext) -> None:
+    """Курс выбран при регистрации → показываем группы этого курса."""
+    course = callback.data.split(":", 1)[1]
+    await state.update_data(reg_course=course)
+    await state.set_state(Registration.group)
+    await callback.message.edit_text(
+        titled("Курс сохранён", f"{esc(course)}\n\nТеперь выбери группу."),
+        reply_markup=group_select_kb(
+            "group", course=course, include_back=True, back_cb="reg_course_back"
+        ),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "reg_course_back")
+async def on_registration_course_back(callback: CallbackQuery, state: FSMContext) -> None:
+    """Вернуться к выбору курса при регистрации."""
+    await state.set_state(Registration.course)
+    await callback.message.edit_text(
+        titled("Первичная настройка", "Выбери курс."),
+        reply_markup=course_select_kb("reg_course"),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("group:"))
@@ -439,7 +473,7 @@ async def on_subgroup_eng(callback: CallbackQuery, state: FSMContext) -> None:
     await update_user_subgroups(callback.from_user.id, sg_inf, sg_eng)
 
     eng_label = _eng_sg_label(group_name, sg_eng)
-    options = get_extra_options(group_name)
+    options = get_extra_options(group_name) if EXTRA_ENABLED else []
     await state.update_data(reg_extra_selected=[])
 
     if not options:
@@ -692,6 +726,48 @@ async def on_profile_group(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+@router.callback_query(Profile.course, F.data.startswith("profile_course:"))
+async def on_profile_course_selected(callback: CallbackQuery, state: FSMContext) -> None:
+    """Курс выбран в профиле → показываем группы этого курса."""
+    course = callback.data.split(":", 1)[1]
+    await state.update_data(profile_course=course)
+    await state.set_state(Profile.group)
+    await callback.message.edit_text(
+        titled("Смена группы", f"Курс · {esc(course)}\n\nВыбери группу."),
+        reply_markup=group_select_kb(
+            "profile_group", course=course, include_back=True, back_cb="profile_group_back"
+        ),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await register_ui_messages(
+        state,
+        [callback.message.message_id],
+        screen="profile",
+        last_bot_msg=callback.message.message_id,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "profile_group_back")
+async def on_profile_group_back(callback: CallbackQuery, state: FSMContext) -> None:
+    """Вернуться от выбора группы к выбору курса в профиле."""
+    user = await get_user(callback.from_user.id)
+    current = esc(user["group_name"]) if user else ""
+    await state.set_state(Profile.course)
+    await callback.message.edit_text(
+        titled("Смена группы", f"Сейчас · {current}\n\nВыбери курс."),
+        reply_markup=course_select_kb("profile_course", include_back=True, back_cb="profile:back"),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await register_ui_messages(
+        state,
+        [callback.message.message_id],
+        screen="profile",
+        last_bot_msg=callback.message.message_id,
+    )
+    await callback.answer()
+
+
 @router.callback_query(Profile.group, F.data.startswith("profile_group:"))
 async def on_profile_group_selected(callback: CallbackQuery, state: FSMContext) -> None:
     """Сохранить группу и запросить подгруппы."""
@@ -838,8 +914,8 @@ async def cmd_change_group(message: Message, state: FSMContext) -> None:
         return
     await delete_user_message(message)
     sent = await message.answer(
-        titled("Смена группы", f"Сейчас · {esc(user['group_name'])}\n\nВыбери новую группу."),
-        reply_markup=group_select_kb("profile_group", include_back=True),
+        titled("Смена группы", f"Сейчас · {esc(user['group_name'])}\n\nВыбери курс."),
+        reply_markup=course_select_kb("profile_course", include_back=True, back_cb="profile:back"),
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(
@@ -851,7 +927,7 @@ async def cmd_change_group(message: Message, state: FSMContext) -> None:
         clear_state=True,
         last_bot_msg=sent.message_id,
     )
-    await state.set_state(Profile.group)
+    await state.set_state(Profile.course)
     await state.update_data(profile_action="group")
 
 

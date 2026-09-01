@@ -9,7 +9,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-from config import ENG_SUBGROUPS, GROUPS
+from config import COURSES, ENG_SUBGROUPS, EXTRA_ENABLED, GROUPS
 
 # ── Reply-клавиатуры ──────────────────────────────────────
 
@@ -17,7 +17,7 @@ from config import ENG_SUBGROUPS, GROUPS
 def main_menu_kb(role: str = "student", show_extra_button: bool = True) -> ReplyKeyboardMarkup:
     """Главное меню бота (зависит от роли)."""
     link_row = [KeyboardButton(text="🔗 Полезные ссылки")]
-    if show_extra_button:
+    if show_extra_button and EXTRA_ENABLED:
         link_row.append(KeyboardButton(text="📌 Доп. занятия"))
     rows = [
         [KeyboardButton(text="📅 Расписание")],
@@ -51,19 +51,41 @@ def main_menu_only_kb() -> ReplyKeyboardMarkup:
 # ── Inline-клавиатуры ─────────────────────────────────────
 
 
-def group_select_kb(prefix: str = "group", include_back: bool = False) -> InlineKeyboardMarkup:
-    """Выбор группы (prefix задаёт callback-префикс)."""
-    buttons = [[InlineKeyboardButton(text=g, callback_data=f"{prefix}:{g}")] for g in GROUPS]
+def course_select_kb(
+    prefix: str = "course",
+    include_back: bool = False,
+    back_cb: str = "profile:back",
+) -> InlineKeyboardMarkup:
+    """Выбор курса (prefix задаёт callback-префикс)."""
+    buttons = [
+        [InlineKeyboardButton(text=course, callback_data=f"{prefix}:{course}")]
+        for course in COURSES
+    ]
     if include_back:
-        buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="profile:back")])
+        buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def other_group_select_kb(current_group: str) -> InlineKeyboardMarkup:
-    """Выбор другой группы для просмотра расписания."""
+def group_select_kb(
+    prefix: str = "group",
+    course: str | None = None,
+    include_back: bool = False,
+    back_cb: str = "profile:back",
+) -> InlineKeyboardMarkup:
+    """Выбор группы внутри курса (prefix задаёт callback-префикс)."""
+    groups = COURSES.get(course, GROUPS) if course else GROUPS
+    buttons = [[InlineKeyboardButton(text=g, callback_data=f"{prefix}:{g}")] for g in groups]
+    if include_back:
+        buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def other_group_select_kb(current_group: str, course: str | None = None) -> InlineKeyboardMarkup:
+    """Выбор другой группы для просмотра расписания (в рамках курса)."""
+    groups = COURSES.get(course, GROUPS) if course else GROUPS
     buttons = [
         [InlineKeyboardButton(text=g, callback_data=f"other_group:{g}")]
-        for g in GROUPS
+        for g in groups
         if g != current_group
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -234,18 +256,23 @@ def settings_menu_kb(
     extra_label = "в расписании" if extra_in_schedule else "отдельной кнопкой"
     notify_label = daily_notify_time if daily_notify_enabled else "выкл."
     alert_label = "вкл." if change_alert_enabled else "выкл."
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=f"📱 Вид расписания: {view_label}", callback_data="settings:view"
-                )
-            ],
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"📱 Вид расписания: {view_label}", callback_data="settings:view"
+            )
+        ]
+    ]
+    if EXTRA_ENABLED:
+        rows.append(
             [
                 InlineKeyboardButton(
                     text=f"📌 Доп. занятия: {extra_label}", callback_data="settings:extra"
                 )
-            ],
+            ]
+        )
+    rows.extend(
+        [
             [
                 InlineKeyboardButton(
                     text=f"☀️ Ежедневное расписание: {notify_label}", callback_data="settings:daily"
@@ -259,18 +286,21 @@ def settings_menu_kb(
             [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="settings:main")],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def profile_menu_kb() -> InlineKeyboardMarkup:
     """Меню учебного профиля."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🎓 Сменить группу", callback_data="profile:group")],
-            [InlineKeyboardButton(text="👥 Сменить подгруппы", callback_data="profile:subgroups")],
-            [InlineKeyboardButton(text="📌 Изменить доп. занятия", callback_data="profile:extra")],
-            [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="profile:main")],
-        ]
-    )
+    rows = [
+        [InlineKeyboardButton(text="🎓 Сменить группу", callback_data="profile:group")],
+        [InlineKeyboardButton(text="👥 Сменить подгруппы", callback_data="profile:subgroups")],
+    ]
+    if EXTRA_ENABLED:
+        rows.append(
+            [InlineKeyboardButton(text="📌 Изменить доп. занятия", callback_data="profile:extra")]
+        )
+    rows.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="profile:main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def settings_view_kb(compact: bool) -> InlineKeyboardMarkup:

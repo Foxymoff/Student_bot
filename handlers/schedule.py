@@ -13,12 +13,21 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from config import DATA_DIR, GROUP_FILES, GROUPS, ROOM_SHORT, SUBJECT_SHORT, app_today
+from config import (
+    DATA_DIR,
+    GROUP_FILES,
+    GROUPS,
+    ROOM_SHORT,
+    SUBJECT_SHORT,
+    app_today,
+    is_english_subject,
+)
 from database import get_overrides, get_user
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.start import push_nav
 from keyboards import (
     back_kb,
+    course_select_kb,
     other_group_select_kb,
     schedule_collapse_kb,
     schedule_detail_kb,
@@ -74,6 +83,7 @@ WEEKDAY_NAMES_SHORT: dict[int, str] = {
 
 
 class ScheduleNav(StatesGroup):
+    course = State()
     group = State()
     period = State()
 
@@ -132,7 +142,7 @@ def _filter_by_subgroup(lessons: list[dict], sg_inf: int, sg_eng: int) -> list[d
             if "информатик" in subject_low:
                 if subgroup != sg_inf:
                     continue
-            elif "иностранн" in subject_low or "английск" in subject_low:
+            elif is_english_subject(subject_low):
                 if subgroup != sg_eng:
                     continue
             else:
@@ -141,8 +151,7 @@ def _filter_by_subgroup(lessons: list[dict], sg_inf: int, sg_eng: int) -> list[d
 
         subgroups = lesson.get("subgroups")
         if subgroups:
-            subject_low = lesson.get("subject", "").lower()
-            if "иностранн" in subject_low or "английск" in subject_low:
+            if is_english_subject(lesson.get("subject", "")):
                 user_sg = sg_eng
             else:
                 user_sg = sg_inf
@@ -600,8 +609,8 @@ async def show_other_group_select(message: Message, state: FSMContext) -> None:
         title("Расписание другой группы"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
     )
     body = await message.answer(
-        titled("Группа", "Выбери группу."),
-        reply_markup=other_group_select_kb(user["group_name"]),
+        titled("Курс", "Выбери курс."),
+        reply_markup=course_select_kb("other_course"),
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(
@@ -615,7 +624,7 @@ async def show_other_group_select(message: Message, state: FSMContext) -> None:
         last_schedule_msg=body.message_id,
     )
     await push_nav(state, "main_menu")
-    await state.set_state(ScheduleNav.group)
+    await state.set_state(ScheduleNav.course)
     await state.update_data(schedule_context="other")
 
 
@@ -627,6 +636,24 @@ async def cmd_other_groups(message: Message, state: FSMContext) -> None:
     """Команда /groups — посмотреть расписание другой группы."""
     await delete_user_message(message)
     await show_other_group_select(message, state)
+
+
+@router.callback_query(ScheduleNav.course, F.data.startswith("other_course:"))
+async def on_other_course_selected(callback: CallbackQuery, state: FSMContext) -> None:
+    """Курс выбран → показываем группы этого курса для чужого расписания."""
+    course = callback.data.split(":", 1)[1]
+    user = await get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Открой /start", show_alert=True)
+        return
+    await state.update_data(other_course=course)
+    await state.set_state(ScheduleNav.group)
+    await callback.message.edit_text(
+        titled("Группа", f"Курс · {course}\n\nВыбери группу."),
+        reply_markup=other_group_select_kb(user["group_name"], course=course),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await callback.answer()
 
 
 @router.callback_query(ScheduleNav.group, F.data.startswith("other_group:"))
