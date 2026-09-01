@@ -148,9 +148,7 @@ def _profile_text(user: dict) -> str:
     extra_label = f"{extra_count} выбрано" if extra_count else "не выбраны"
     course = course_of(user["group_name"])
     course_line = f"Курс · {course.split()[0]}\n" if course else ""
-    inf_line = (
-        f"Информатика · {sg_inf} подгр.\n" if has_inf_subgroup(user["group_name"]) else ""
-    )
+    inf_line = f"Информатика · {sg_inf} подгр.\n" if has_inf_subgroup(user["group_name"]) else ""
     return (
         f"{title('Учебный профиль')}\n\n"
         f"{course_line}"
