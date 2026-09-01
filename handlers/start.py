@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from config import ENG_SUBGROUPS, EXTRA_ENABLED, course_of
+from config import ENG_SUBGROUPS, EXTRA_ENABLED, course_of, has_inf_subgroup
 from database import (
     add_user,
     get_user,
@@ -148,11 +148,12 @@ def _profile_text(user: dict) -> str:
     extra_label = f"{extra_count} выбрано" if extra_count else "не выбраны"
     course = course_of(user["group_name"])
     course_line = f"Курс · {course.split()[0]}\n" if course else ""
+    inf_line = f"Информатика · {sg_inf} подгр.\n" if has_inf_subgroup(user["group_name"]) else ""
     return (
         f"{title('Учебный профиль')}\n\n"
         f"{course_line}"
         f"Группа · {esc(user['group_name'])}\n"
-        f"Информатика · {sg_inf} подгр.\n"
+        f"{inf_line}"
         f"Английский · {esc(eng_label)}\n"
         f"Доп. занятия · {esc(extra_label)}"
     )
@@ -315,19 +316,29 @@ async def _open_profile_group(callback: CallbackQuery, state: FSMContext, user: 
 
 async def _open_profile_subgroups(callback: CallbackQuery, state: FSMContext, user: dict) -> None:
     """Открыть выбор подгрупп внутри учебного профиля."""
+    group_name = user["group_name"]
     sg_inf = user.get("subgroup_cs", 1) or 1
     sg_eng = user.get("subgroup_en", 1) or 1
-    eng_label = _eng_sg_label(user["group_name"], sg_eng)
-    await state.set_state(Profile.subgroup_inf)
-    await state.update_data(profile_action="subgroups", profile_sg_inf=None)
-    await callback.message.edit_text(
-        titled(
-            "Смена подгрупп",
+    eng_label = _eng_sg_label(group_name, sg_eng)
+    has_inf = has_inf_subgroup(group_name)
+    if not has_inf:
+        # 2 курс: информатики нет — спрашиваем только английский.
+        await state.set_state(Profile.subgroup_eng)
+        await state.update_data(profile_action="subgroups", profile_sg_inf=1)
+        body = f"Английский · {esc(eng_label)}\n\nВыбери подгруппу по английскому."
+        reply_markup = eng_subgroup_select_kb(group_name, "profile_sg", include_back=True)
+    else:
+        await state.set_state(Profile.subgroup_inf)
+        await state.update_data(profile_action="subgroups", profile_sg_inf=None)
+        body = (
             f"Информатика · {sg_inf} подгр.\n"
             f"Английский · {esc(eng_label)}\n\n"
-            "Выбери подгруппу по информатике.",
-        ),
-        reply_markup=subgroup_select_kb("inf", "profile_sg", include_back=True),
+            "Выбери подгруппу по информатике."
+        )
+        reply_markup = subgroup_select_kb("inf", "profile_sg", include_back=True)
+    await callback.message.edit_text(
+        titled("Смена подгрупп", body),
+        reply_markup=reply_markup,
         parse_mode=HTML_PARSE_MODE,
     )
     await register_ui_messages(
@@ -434,10 +445,24 @@ async def on_registration_course_back(callback: CallbackQuery, state: FSMContext
 
 @router.callback_query(F.data.startswith("group:"))
 async def on_group_selected(callback: CallbackQuery, state: FSMContext) -> None:
-    """Обработка выбора группы → спрашиваем подгруппу по информатике."""
+    """Обработка выбора группы → спрашиваем подгруппу (или сразу английский на 2 курсе)."""
     group_name = callback.data.split(":", 1)[1]
     await add_user(callback.from_user.id, group_name)
     await state.update_data(group_name=group_name)
+    if not has_inf_subgroup(group_name):
+        # 2 курс: информатики нет — пропускаем шаг, спрашиваем сразу английский.
+        await state.update_data(sg_inf=1)
+        await state.set_state(Registration.subgroup_eng)
+        await callback.message.edit_text(
+            titled(
+                "Группа сохранена",
+                f"{esc(group_name)}\n\nВыбери подгруппу по английскому.",
+            ),
+            reply_markup=eng_subgroup_select_kb(group_name),
+            parse_mode=HTML_PARSE_MODE,
+        )
+        await callback.answer()
+        return
     await state.set_state(Registration.subgroup_inf)
     await callback.message.edit_text(
         titled("Группа сохранена", f"{esc(group_name)}\n\nВыбери подгруппу по информатике."),
@@ -473,24 +498,27 @@ async def on_subgroup_eng(callback: CallbackQuery, state: FSMContext) -> None:
     await update_user_subgroups(callback.from_user.id, sg_inf, sg_eng)
 
     eng_label = _eng_sg_label(group_name, sg_eng)
+    has_inf = has_inf_subgroup(group_name)
     options = get_extra_options(group_name) if EXTRA_ENABLED else []
     await state.update_data(reg_extra_selected=[])
 
     if not options:
         await update_user_extra_choices(callback.from_user.id, [])
         await update_user_extra_in_schedule(callback.from_user.id, False)
+        inf_part = f"инф. {sg_inf} · " if has_inf else ""
         await callback.answer(
-            f"Подгруппы сохранены · инф. {sg_inf} · англ. {eng_label}",
+            f"Подгруппы сохранены · {inf_part}англ. {eng_label}",
             show_alert=True,
         )
         await _ask_registration_daily_notify(callback, state)
         return
 
+    inf_line = f"Информатика · {sg_inf} подгр.\n" if has_inf else ""
     await state.set_state(Registration.extra)
     await callback.message.edit_text(
         titled(
             "Подгруппы сохранены",
-            f"Информатика · {sg_inf} подгр.\n"
+            f"{inf_line}"
             f"Английский · {esc(eng_label)}\n\n"
             "Выбери доп. занятия. Можно отметить несколько.",
         ),
@@ -770,15 +798,29 @@ async def on_profile_group_back(callback: CallbackQuery, state: FSMContext) -> N
 
 @router.callback_query(Profile.group, F.data.startswith("profile_group:"))
 async def on_profile_group_selected(callback: CallbackQuery, state: FSMContext) -> None:
-    """Сохранить группу и запросить подгруппы."""
+    """Сохранить группу и запросить подгруппы (на 2 курсе — сразу английский)."""
     group_name = callback.data.split(":", 1)[1]
     await add_user(callback.from_user.id, group_name)
-    await state.set_state(Profile.subgroup_inf)
+    has_inf = has_inf_subgroup(group_name)
     await state.update_data(
         profile_action="group",
         profile_group_name=group_name,
-        profile_sg_inf=None,
+        profile_sg_inf=None if has_inf else 1,
     )
+    if not has_inf:
+        # 2 курс: информатики нет — пропускаем шаг, спрашиваем сразу английский.
+        await state.set_state(Profile.subgroup_eng)
+        await callback.message.edit_text(
+            titled(
+                "Группа изменена",
+                f"{esc(group_name)}\n\nВыбери подгруппу по английскому.",
+            ),
+            reply_markup=eng_subgroup_select_kb(group_name, "profile_sg", include_back=True),
+            parse_mode=HTML_PARSE_MODE,
+        )
+        await callback.answer()
+        return
+    await state.set_state(Profile.subgroup_inf)
     await callback.message.edit_text(
         titled("Группа изменена", f"{esc(group_name)}\n\nВыбери подгруппу по информатике."),
         reply_markup=subgroup_select_kb("inf", "profile_sg", include_back=True),
@@ -838,7 +880,8 @@ async def on_profile_sg_eng(callback: CallbackQuery, state: FSMContext) -> None:
 
     await _show_profile_callback(callback, state)
     eng_label = _eng_sg_label(user["group_name"], sg_eng)
-    await callback.answer(f"Готово · инф. {sg_inf} · англ. {eng_label}", show_alert=True)
+    inf_part = f"инф. {sg_inf} · " if has_inf_subgroup(user["group_name"]) else ""
+    await callback.answer(f"Готово · {inf_part}англ. {eng_label}", show_alert=True)
 
 
 @router.callback_query(F.data == "profile:extra")
@@ -957,17 +1000,29 @@ async def cmd_change_subgroups(message: Message, state: FSMContext) -> None:
         await _send_register_required(message, state)
         return
     await delete_user_message(message)
+    group_name = user["group_name"]
     sg_inf = user.get("subgroup_cs", 1) or 1
     sg_eng = user.get("subgroup_en", 1) or 1
-    eng_label = _eng_sg_label(user["group_name"], sg_eng)
-    sent = await message.answer(
-        titled(
-            "Смена подгрупп",
+    eng_label = _eng_sg_label(group_name, sg_eng)
+    has_inf = has_inf_subgroup(group_name)
+    if not has_inf:
+        # 2 курс: информатики нет — спрашиваем только английский.
+        body = f"Английский · {esc(eng_label)}\n\nВыбери подгруппу по английскому."
+        reply_markup = eng_subgroup_select_kb(group_name, "profile_sg", include_back=True)
+        next_state = Profile.subgroup_eng
+        sg_inf_default: int | None = 1
+    else:
+        body = (
             f"Информатика · {sg_inf} подгр.\n"
             f"Английский · {esc(eng_label)}\n\n"
-            "Выбери подгруппу по информатике.",
-        ),
-        reply_markup=subgroup_select_kb("inf", "profile_sg", include_back=True),
+            "Выбери подгруппу по информатике."
+        )
+        reply_markup = subgroup_select_kb("inf", "profile_sg", include_back=True)
+        next_state = Profile.subgroup_inf
+        sg_inf_default = None
+    sent = await message.answer(
+        titled("Смена подгрупп", body),
+        reply_markup=reply_markup,
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(
@@ -979,8 +1034,8 @@ async def cmd_change_subgroups(message: Message, state: FSMContext) -> None:
         clear_state=True,
         last_bot_msg=sent.message_id,
     )
-    await state.set_state(Profile.subgroup_inf)
-    await state.update_data(profile_action="subgroups", profile_sg_inf=None)
+    await state.set_state(next_state)
+    await state.update_data(profile_action="subgroups", profile_sg_inf=sg_inf_default)
 
 
 @router.callback_query(F.data.startswith("chg_sg:inf:"))

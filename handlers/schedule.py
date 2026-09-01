@@ -273,15 +273,21 @@ def _apply_overrides(lessons: list[dict], overrides: list[dict]) -> list[dict]:
 
 
 def _fill_gaps(lessons: list[dict]) -> list[dict]:
-    """Заполнить пустые слоты (окна) между парами."""
+    """Заполнить пустые слоты (окна и ведущие пары) прочерками.
+
+    Если день начинается со 2-й пары (или позже), недостающие пары показываем
+    начиная с 1-й. «Нулевую» пару (разговоры/классный час) не выдумываем — она
+    попадает в вывод только если реально есть в расписании.
+    """
     if not lessons:
         return []
     nums = [lesson["num"] for lesson in lessons]
-    min_num = min(nums)
     max_num = max(nums)
+    # Пол диапазона: 1-я пара, но если есть «нулевая» — начинаем с неё.
+    start = min(min(nums), 1)
     lesson_map = {lesson["num"]: lesson for lesson in lessons}
     result = []
-    for n in range(min_num, max_num + 1):
+    for n in range(start, max_num + 1):
         if n in lesson_map:
             result.append(lesson_map[n])
         else:
@@ -451,10 +457,12 @@ def format_day_detailed(
     filtered = _filter_by_subgroup(lessons, sg_inf, sg_eng)
     if overrides:
         filtered = _apply_overrides(filtered, overrides)
+    filtered = _fill_gaps(filtered)
 
     blocks: list[str] = []
     for lesson in filtered:
         if lesson.get("_empty"):
+            blocks.append(f"{lesson.get('num', 0)} —")
             continue
 
         cancelled = lesson.get("_cancelled", False)
