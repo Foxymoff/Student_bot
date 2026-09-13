@@ -250,11 +250,13 @@ def settings_menu_kb(
     daily_notify_enabled: bool = False,
     daily_notify_time: str = "08:00",
     change_alert_enabled: bool = False,
+    daily_notify_target: str = "today",
 ) -> InlineKeyboardMarkup:
     """Главное inline-меню настроек."""
     view_label = "Компактный" if compact else "Колонки"
     extra_label = "в расписании" if extra_in_schedule else "отдельной кнопкой"
-    notify_label = daily_notify_time if daily_notify_enabled else "выкл."
+    notify_emoji = "🌙" if daily_notify_target == "tomorrow" else "☀️"
+    notify_label = f"{notify_emoji} {daily_notify_time}" if daily_notify_enabled else "выкл."
     alert_label = "вкл." if change_alert_enabled else "выкл."
     rows = [
         [
@@ -275,7 +277,7 @@ def settings_menu_kb(
         [
             [
                 InlineKeyboardButton(
-                    text=f"☀️ Ежедневное расписание: {notify_label}", callback_data="settings:daily"
+                    text=f"🔔 Ежедневное расписание: {notify_label}", callback_data="settings:daily"
                 )
             ],
             [
@@ -336,13 +338,24 @@ def settings_extra_display_kb(extra_in_schedule: bool) -> InlineKeyboardMarkup:
     )
 
 
-def settings_daily_notify_kb(enabled: bool, sound: bool) -> InlineKeyboardMarkup:
+def settings_daily_notify_kb(
+    enabled: bool, sound: bool, target: str = "today"
+) -> InlineKeyboardMarkup:
     """Настройки ежедневного уведомления."""
     buttons: list[list[InlineKeyboardButton]] = []
     if enabled:
+        is_tomorrow = target == "tomorrow"
+        target_label = "🌙 На завтра (вечером)" if is_tomorrow else "☀️ На сегодня (утром)"
+        next_target = "today" if is_tomorrow else "tomorrow"
         buttons.extend(
             [
                 [InlineKeyboardButton(text="Выключить", callback_data="settings:daily_enabled:0")],
+                [
+                    InlineKeyboardButton(
+                        text=f"Присылать: {target_label}",
+                        callback_data=f"settings:daily_target:{next_target}",
+                    )
+                ],
                 [InlineKeyboardButton(text="Изменить время", callback_data="settings:daily_time")],
                 [
                     InlineKeyboardButton(
@@ -443,6 +456,36 @@ def starosta_lesson_actions_kb() -> InlineKeyboardMarkup:
                     text="↩️ Откатить изменения", callback_data="starosta_action:rollback"
                 )
             ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="starosta_back:lessons")],
+        ]
+    )
+
+
+def starosta_empty_slot_kb() -> InlineKeyboardMarkup:
+    """Действия с пустым слотом (прочерком): добавить пару."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Добавить пару", callback_data="starosta_action:add")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="starosta_back:lessons")],
+        ]
+    )
+
+
+def starosta_added_pair_kb() -> InlineKeyboardMarkup:
+    """Действия с парой, добавленной старостой на пустой слот."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ Изменить аудиторию", callback_data="starosta_action:room"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📝 Добавить примечание", callback_data="starosta_action:note"
+                )
+            ],
+            [InlineKeyboardButton(text="🗑 Удалить пару", callback_data="starosta_action:rollback")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="starosta_back:lessons")],
         ]
     )

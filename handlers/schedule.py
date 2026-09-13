@@ -17,7 +17,9 @@ from config import (
     DATA_DIR,
     GROUP_FILES,
     GROUPS,
+    PAIR_TIMES,
     ROOM_SHORT,
+    SUBJECT_FULL,
     SUBJECT_SHORT,
     app_today,
     is_english_subject,
@@ -115,6 +117,11 @@ def _get_week_type(target_date: datetime.date | None = None) -> str:
 def _short_name(subject: str) -> str:
     """Сокращение длинных названий предметов."""
     return SUBJECT_SHORT.get(subject, subject)
+
+
+def _full_name(subject: str) -> str:
+    """Полное название предмета для подробного вида (без кодов МДК/цифр)."""
+    return SUBJECT_FULL.get(subject, subject)
 
 
 def _short_room(room: str | None) -> str:
@@ -219,12 +226,33 @@ def _lesson_short_status(lesson: dict, include_note: bool = True) -> str:
     return _append_note_marker(base, include_note and bool(lesson.get("_note")))
 
 
+def _added_lesson(ov: dict) -> dict:
+    """Синтезировать пару, добавленную старостой на пустой слот."""
+    num = int(ov.get("lesson_num") or 0)
+    return {
+        "num": num,
+        "subject": str(ov.get("new_value") or "").strip() or f"Пара {num}",
+        "time": PAIR_TIMES.get(num, ""),
+        "_added": True,
+    }
+
+
 def _apply_overrides(lessons: list[dict], overrides: list[dict]) -> list[dict]:
     """Наложить изменения (overrides) на пары."""
     override_map: dict[int, list[dict]] = {}
     for ov in overrides:
         num = ov["lesson_num"]
         override_map.setdefault(num, []).append(ov)
+
+    # Пары, добавленные старостой на пустые слоты (тип "add"), которых нет в JSON.
+    existing_nums = {lesson.get("num") for lesson in lessons}
+    injected = [
+        _added_lesson(ov)
+        for ov in overrides
+        if ov.get("override_type") == "add" and int(ov.get("lesson_num") or 0) not in existing_nums
+    ]
+    if injected:
+        lessons = [*lessons, *injected]
 
     result = []
     for lesson in lessons:
@@ -270,6 +298,11 @@ def _apply_overrides(lessons: list[dict], overrides: list[dict]) -> list[dict]:
                     lesson["_has_override"] = True
         result.append(lesson)
     return result
+
+
+def _has_added_override(overrides: list[dict] | None) -> bool:
+    """Есть ли среди overrides добавленная старостой пара (тип 'add')."""
+    return any(ov.get("override_type") == "add" for ov in (overrides or []))
 
 
 def _fill_gaps(lessons: list[dict]) -> list[dict]:
@@ -383,7 +416,7 @@ def format_day_short(
     """Краткий вид расписания на день (HTML)."""
     header = f"<b>{_esc(_date_header(target_date))}</b>"
 
-    if not lessons and not extras:
+    if not lessons and not extras and not _has_added_override(overrides):
         return f"{header}\nВыходной 🎉"
 
     filtered = _filter_by_subgroup(lessons, sg_inf, sg_eng)
@@ -451,7 +484,7 @@ def format_day_detailed(
     """Подробный вид расписания на день (HTML)."""
     header = f"<b>{_esc(_date_header(target_date))}</b>"
 
-    if not lessons and not extras:
+    if not lessons and not extras and not _has_added_override(overrides):
         return f"{header}\nВыходной 🎉"
 
     filtered = _filter_by_subgroup(lessons, sg_inf, sg_eng)
@@ -467,7 +500,7 @@ def format_day_detailed(
 
         cancelled = lesson.get("_cancelled", False)
         num = str(lesson.get("num", 0))
-        subj = _esc(_short_name(lesson.get("subject", "")))
+        subj = _esc(_full_name(lesson.get("subject", "")))
         time_str = _esc(lesson.get("time", "-"))
         room = _esc(_lesson_short_status(lesson, include_note=False) or "-")
         teacher = _esc(lesson.get("_sg_teacher") or lesson.get("teacher") or "-")

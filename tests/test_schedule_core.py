@@ -69,6 +69,74 @@ def test_apply_overrides_respects_subgroups_and_sets_flags():
     assert result[2]["_override_comment"] == "cancelled"
 
 
+def test_apply_overrides_injects_added_lesson_on_empty_slot():
+    lessons = [
+        {"num": 1, "subject": "История", "room": "301", "time": "09:20-10:50"},
+    ]
+    overrides = [
+        {
+            "lesson_num": 3,
+            "subgroup": None,
+            "override_type": "add",
+            "new_value": "Проектная деятельность",
+        },
+    ]
+
+    result = schedule._apply_overrides(lessons, overrides)
+
+    added = [lesson for lesson in result if lesson.get("_added")]
+    assert len(added) == 1
+    assert added[0]["num"] == 3
+    assert added[0]["subject"] == "Проектная деятельность"
+    # время подставляется из стандартной сетки звонков
+    assert added[0]["time"] == "13:30-15:00"
+
+
+def test_apply_overrides_add_does_not_duplicate_existing_lesson():
+    lessons = [{"num": 2, "subject": "Математика", "room": "112"}]
+    overrides = [
+        {"lesson_num": 2, "subgroup": None, "override_type": "add", "new_value": "Хак"},
+    ]
+
+    result = schedule._apply_overrides(lessons, overrides)
+
+    assert len(result) == 1
+    assert result[0]["subject"] == "Математика"
+
+
+def test_added_lesson_can_receive_room_change():
+    lessons: list[dict] = []
+    overrides = [
+        {"lesson_num": 4, "subgroup": None, "override_type": "add", "new_value": "Проект"},
+        {"lesson_num": 4, "subgroup": None, "override_type": "room_change", "new_value": "415"},
+    ]
+
+    result = schedule._apply_overrides(lessons, overrides)
+
+    assert len(result) == 1
+    assert result[0]["_added"] is True
+    assert result[0]["room"] == "415"
+
+
+def test_format_day_short_shows_added_pair_on_empty_day():
+    # Полностью выходной день, но староста добавил пару — «Выходной» не показываем.
+    overrides = [
+        {"lesson_num": 1, "subgroup": None, "override_type": "add", "new_value": "Пересдача"},
+    ]
+    result = schedule.format_day_short(
+        [], datetime.date(2026, 9, 20), overrides=overrides, compact=True
+    )
+
+    assert "Выходной" not in result
+    assert "Пересдача" in result
+
+
+def test_format_day_short_empty_day_without_add_is_holiday():
+    result = schedule.format_day_short([], datetime.date(2026, 9, 20))
+
+    assert "Выходной" in result
+
+
 def test_fill_gaps_adds_empty_lessons_between_existing_numbers():
     result = schedule._fill_gaps(
         [

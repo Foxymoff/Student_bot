@@ -18,6 +18,7 @@ from database import (
     update_user_change_alert,
     update_user_compact,
     update_user_daily_notify,
+    update_user_daily_notify_target,
     update_user_extra_choices,
     update_user_extra_in_schedule,
     update_user_subgroups,
@@ -123,10 +124,14 @@ def _daily_notify_text(user: dict) -> str:
     enabled = bool(user.get("daily_notify_enabled"))
     status = "включено" if enabled else "выключено"
     notify_time = str(user.get("daily_notify_time") or "08:00")
+    target = str(user.get("daily_notify_target") or "today")
+    target_label = "на завтра 🌙" if target == "tomorrow" else "на сегодня ☀️"
     return titled(
         "Ежедневное расписание",
-        "Автоотправка расписания на день в выбранное время.\n\n"
+        "Автоотправка расписания в выбранное время.\n"
+        "Пустые дни (выходные без пар и кружков) не присылаются.\n\n"
         f"Статус · {status}\n"
+        f"Показывать · <b>{target_label}</b>\n"
         f"Время · <b>{esc(notify_time)}</b>",
     )
 
@@ -167,6 +172,7 @@ def _settings_kb(user: dict):
         bool(user.get("daily_notify_enabled")),
         str(user.get("daily_notify_time") or "08:00"),
         bool(user.get("change_alert_enabled")),
+        str(user.get("daily_notify_target") or "today"),
     )
 
 
@@ -1235,10 +1241,36 @@ async def on_settings_daily(callback: CallbackQuery) -> None:
         reply_markup=settings_daily_notify_kb(
             bool(user.get("daily_notify_enabled")),
             bool(user.get("daily_notify_sound", 1)),
+            str(user.get("daily_notify_target") or "today"),
         ),
         parse_mode=HTML_PARSE_MODE,
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("settings:daily_target:"))
+async def on_settings_daily_target(callback: CallbackQuery) -> None:
+    """Переключить режим: расписание на сегодня или на завтра."""
+    target = callback.data.split(":")[-1]
+    if target not in {"today", "tomorrow"}:
+        await callback.answer()
+        return
+    await update_user_daily_notify_target(callback.from_user.id, target)
+    user = await get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Открой /start", show_alert=True)
+        return
+    await callback.message.edit_text(
+        _daily_notify_text(user),
+        reply_markup=settings_daily_notify_kb(
+            bool(user.get("daily_notify_enabled")),
+            bool(user.get("daily_notify_sound", 1)),
+            str(user.get("daily_notify_target") or "today"),
+        ),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    label = "на завтра 🌙" if target == "tomorrow" else "на сегодня ☀️"
+    await callback.answer(f"Готово · присылать {label}", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("settings:daily_enabled:"))
@@ -1296,6 +1328,7 @@ async def on_settings_daily_time_back(callback: CallbackQuery, state: FSMContext
         reply_markup=settings_daily_notify_kb(
             bool(user.get("daily_notify_enabled")),
             bool(user.get("daily_notify_sound", 1)),
+            str(user.get("daily_notify_target") or "today"),
         ),
         parse_mode=HTML_PARSE_MODE,
     )
@@ -1372,7 +1405,11 @@ async def on_settings_daily_time_input(message: Message, state: FSMContext) -> N
     await clear_state_keep_ui(state)
     user = await get_user(message.from_user.id)
     daily_text = _daily_notify_text(user)
-    daily_kb = settings_daily_notify_kb(True, bool(user.get("daily_notify_sound", 1)))
+    daily_kb = settings_daily_notify_kb(
+        True,
+        bool(user.get("daily_notify_sound", 1)),
+        str(user.get("daily_notify_target") or "today"),
+    )
     sent = await message.answer(
         daily_text,
         reply_markup=daily_kb,
@@ -1403,7 +1440,9 @@ async def on_settings_daily_sound_setup(callback: CallbackQuery, state: FSMConte
     user = await get_user(callback.from_user.id)
     await callback.message.edit_text(
         _daily_notify_text(user),
-        reply_markup=settings_daily_notify_kb(True, sound),
+        reply_markup=settings_daily_notify_kb(
+            True, sound, str(user.get("daily_notify_target") or "today")
+        ),
         parse_mode=HTML_PARSE_MODE,
     )
     await callback.answer("Готово · уведомление включено", show_alert=True)
@@ -1429,6 +1468,7 @@ async def on_settings_daily_sound_toggle(callback: CallbackQuery) -> None:
         reply_markup=settings_daily_notify_kb(
             bool(user.get("daily_notify_enabled")),
             bool(user.get("daily_notify_sound", 1)),
+            str(user.get("daily_notify_target") or "today"),
         ),
         parse_mode=HTML_PARSE_MODE,
     )
