@@ -22,13 +22,20 @@ from database import (
     get_user,
     get_users_by_group,
 )
-from handlers.schedule import MONTH_NAMES, WEEKDAY_NAMES_SHORT, get_lessons_for_date
+from handlers.schedule import (
+    MONTH_NAMES,
+    WEEKDAY_NAMES_SHORT,
+    _added_lesson,
+    get_lessons_for_date,
+)
 from keyboards import (
     alert_delete_kb,
     main_menu_kb,
     main_menu_only_kb,
+    starosta_added_pair_kb,
     starosta_confirm_kb,
     starosta_day_lessons_kb,
+    starosta_empty_slot_kb,
     starosta_input_back_kb,
     starosta_lesson_actions_kb,
     starosta_week_dates_kb,
@@ -42,6 +49,9 @@ router = Router()
 ROOM_MAX_LEN = 40
 NOTE_MAX_LEN = 250
 ONLINE_LINK_MAX_LEN = 300
+SUBJECT_MAX_LEN = 80
+# Максимум пар в дне (обычные пары 1..4; «нулевая» 0 — отдельная, её не добавляем).
+MAX_PAIRS = 4
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -60,6 +70,7 @@ class StarostaAction(StatesGroup):
     waiting_room = State()
     waiting_link = State()
     waiting_note = State()
+    waiting_add_subject = State()
 
 
 def _esc(value: object) -> str:
@@ -86,6 +97,11 @@ def _validate_room(value: object) -> tuple[str | None, str | None]:
 def _validate_note(value: object) -> tuple[str | None, str | None]:
     """Проверить примечание к паре."""
     return _clean_single_line(value, NOTE_MAX_LEN)
+
+
+def _validate_subject(value: object) -> tuple[str | None, str | None]:
+    """Проверить название добавляемой пары."""
+    return _clean_single_line(value, SUBJECT_MAX_LEN)
 
 
 def _validate_online_link(value: object) -> tuple[str | None, str | None]:
@@ -234,6 +250,64 @@ def _find_lesson(
         if lesson.get("_target_subgroup") == subgroup:
             return lesson
     return {}
+
+
+def _overrides_for_num(overrides: list[dict], lesson_num: int, subgroup: int | None) -> list[dict]:
+    """Отфильтровать overrides конкретной пары (с учётом подгруппы)."""
+    result = []
+    for override in overrides:
+        if int(override.get("lesson_num") or 0) != lesson_num:
+            continue
+        if subgroup is None:
+            if override.get("subgroup") in (None, ""):
+                result.append(override)
+        elif int(override.get("subgroup") or 0) == subgroup:
+            result.append(override)
+    return result
+
+
+def _added_override(overrides: list[dict]) -> dict | None:
+    """Найти override типа 'add' (добавленная старостой пара) среди overrides."""
+    for override in overrides:
+        if override.get("override_type") == "add":
+            return override
+    return None
+
+
+async def _resolve_lesson(
+    group_name: str,
+    target_date: datetime.date,
+    date_iso: str,
+    lesson_num: int,
+    subgroup: int | None,
+) -> tuple[dict, bool]:
+    """Вернуть пару (реальную или добавленную старостой) и флаг «добавлена»."""
+    lesson = _find_lesson(group_name, target_date, lesson_num, subgroup)
+    if lesson:
+        return lesson, False
+    overrides = await get_lesson_overrides(group_name, date_iso, lesson_num, subgroup)
+    add_ov = _added_override(overrides)
+    if add_ov:
+        return _added_lesson(add_ov), True
+    return {}, False
+
+
+def _empty_slot_text(target_date: datetime.date, lesson_num: int) -> str:
+    """Текст экрана пустого слота (прочерка)."""
+    return titled(
+        "Пустая пара",
+        f"{_esc(_date_text(target_date))}\n"
+        f"{lesson_num} пара · —\n\n"
+        "На это время пары нет. Можно добавить.",
+    )
+
+
+def _add_input_text(target_date: datetime.date, lesson_num: int, body: str) -> str:
+    """Текст экрана ввода названия добавляемой пары."""
+    return titled(
+        "Добавить пару",
+        f"{_esc(_date_text(target_date))}\n{lesson_num} пара\n\n{body}",
+    )
 
 
 def _same_room(left: object, right: object) -> bool:
@@ -474,31 +548,51 @@ async def _render_lessons(message: Message, state: FSMContext, user: dict, date_
     target_date = datetime.date.fromisoformat(date_iso)
     lessons = get_lessons_for_date(user["group_name"], target_date)
     overrides = await get_overrides(user["group_name"], date_iso)
-    lesson_buttons = []
 
-    for lesson in _lesson_entries(lessons):
-        lesson_num = int(lesson.get("num", 0))
-        subgroup = lesson.get("_target_subgroup")
-        lesson_overrides = [
-            override
-            for override in overrides
-            if int(override.get("lesson_num") or 0) == lesson_num
-            and (
-                override.get("subgroup") in (None, "")
-                if subgroup is None
-                else int(override.get("subgroup") or 0) == subgroup
+    entries_by_num: dict[int, list[dict]] = {}
+    for entry in _lesson_entries(lessons):
+        entries_by_num.setdefault(int(entry.get("num", 0)), []).append(entry)
+    add_by_num = {
+        int(ov.get("lesson_num") or 0): ov for ov in overrides if ov.get("override_type") == "add"
+    }
+
+    def _real_button(entry: dict, num: int) -> dict:
+        subgroup = entry.get("_target_subgroup")
+        status = _pair_status(entry, _overrides_for_num(overrides, num, subgroup))
+        subject = _short_name(_lesson_subject(entry, num))
+        status_label = _pair_status_label(entry, status)
+        return {
+            "_label": f"{num}. {subject}{_lesson_scope(subgroup)} · {status_label}",
+            "_callback": f"starosta_pick:{date_iso}:{num}:{_subgroup_token(subgroup)}",
+        }
+
+    # Диапазон слотов: с 1-й пары (или «нулевой», если она есть) и всегда до MAX_PAIRS,
+    # чтобы можно было добавить пару после последней и в полностью выходной день.
+    start = min(min(entries_by_num, default=1), 1)
+    end = max(MAX_PAIRS, max(entries_by_num, default=0), max(add_by_num, default=0))
+
+    lesson_buttons: list[dict] = []
+    for num in range(start, end + 1):
+        if num in entries_by_num:
+            lesson_buttons.extend(_real_button(entry, num) for entry in entries_by_num[num])
+        elif num in add_by_num:
+            lesson = _added_lesson(add_by_num[num])
+            status = _pair_status(lesson, _overrides_for_num(overrides, num, None))
+            subject = _short_name(_lesson_subject(lesson, num))
+            status_label = _pair_status_label(lesson, status)
+            lesson_buttons.append(
+                {
+                    "_label": f"{num}. ➕ {subject} · {status_label}",
+                    "_callback": f"starosta_pick:{date_iso}:{num}:all",
+                }
             )
-        ]
-        status = _pair_status(lesson, lesson_overrides)
-        subject = _short_name(_lesson_subject(lesson, lesson_num))
-        scope = _lesson_scope(subgroup)
-        status_label = _pair_status_label(lesson, status)
-        lesson_buttons.append(
-            {
-                "_label": f"{lesson_num}. {subject}{scope} · {status_label}",
-                "_callback": f"starosta_pick:{date_iso}:{lesson_num}:{_subgroup_token(subgroup)}",
-            }
-        )
+        else:
+            lesson_buttons.append(
+                {
+                    "_label": f"{num}. — · добавить ➕",
+                    "_callback": f"starosta_pick:{date_iso}:{num}:all",
+                }
+            )
 
     body = f"{_esc(_date_text(target_date))}\n\n"
     body += "Выбери пару." if lesson_buttons else "Пар на эту дату нет."
@@ -524,17 +618,40 @@ async def _render_actions(
     lesson_num: int,
     subgroup: int | None,
 ) -> None:
-    """Показать действия с выбранной парой."""
+    """Показать действия с выбранной парой (реальной, добавленной или пустым слотом)."""
     await state.set_state(None)
     target_date = datetime.date.fromisoformat(date_iso)
-    lesson = _find_lesson(user["group_name"], target_date, lesson_num, subgroup)
     overrides = await get_lesson_overrides(user["group_name"], date_iso, lesson_num, subgroup)
+    lesson = _find_lesson(user["group_name"], target_date, lesson_num, subgroup)
+    is_added = False
+    if not lesson:
+        add_ov = _added_override(overrides)
+        if add_ov:
+            lesson = _added_lesson(add_ov)
+            is_added = True
+
+    if not lesson:
+        # Пустой слот (прочерк) — предлагаем добавить пару.
+        await _show_starosta_body(
+            message,
+            state,
+            _empty_slot_text(target_date, lesson_num),
+            starosta_empty_slot_kb(),
+        )
+        await state.update_data(
+            _starosta_screen="empty_slot",
+            starosta_date=date_iso,
+            starosta_lesson_num=lesson_num,
+            starosta_subgroup=_subgroup_token(subgroup),
+        )
+        return
+
     status = _pair_status(lesson, overrides)
     await _show_starosta_body(
         message,
         state,
         _pair_action_text(target_date, lesson_num, subgroup, lesson, status),
-        starosta_lesson_actions_kb(),
+        starosta_added_pair_kb() if is_added else starosta_lesson_actions_kb(),
     )
     await state.update_data(
         _starosta_screen="actions",
@@ -572,6 +689,14 @@ def _change_alert_text(
             f"⛔️ <b>ОТМЕНА ПАРЫ</b> на {date_text}\n\n{lesson_num} пара · <b>{subject}</b>{scope}"
         )
 
+    if kind == "add":
+        time_str = _esc(lesson.get("time") or "-")
+        return (
+            f"➕ <b>ДОБАВЛЕНА ПАРА</b> на {date_text}\n\n"
+            f"{lesson_num} пара · <b>{subject}</b>{scope}\n"
+            f"Время: <b>{time_str}</b>"
+        )
+
     if kind == "online":
         link = _esc(new_room or "-")
         return (
@@ -604,7 +729,9 @@ async def _send_change_alerts(
         logger.warning("Некорректная дата для алерта: %s", date_iso)
         return
 
-    lesson = _find_lesson(group_name, target_date, lesson_num, subgroup)
+    lesson, _is_added = await _resolve_lesson(
+        group_name, target_date, date_iso, lesson_num, subgroup
+    )
     text = _change_alert_text(kind, target_date, lesson_num, lesson, new_room, subgroup)
     users = await get_users_by_group(group_name)
     for user in users:
@@ -779,8 +906,22 @@ async def on_starosta_action(callback: CallbackQuery, state: FSMContext) -> None
 
     date_iso, lesson_num, subgroup = selected
     target_date = datetime.date.fromisoformat(date_iso)
-    lesson = _find_lesson(user["group_name"], target_date, lesson_num, subgroup)
+    lesson, _is_added = await _resolve_lesson(
+        user["group_name"], target_date, date_iso, lesson_num, subgroup
+    )
     action = callback.data.split(":", 1)[1]
+
+    if action == "add":
+        await state.set_state(StarostaAction.waiting_add_subject)
+        await state.update_data(_starosta_screen="add_input")
+        await _show_starosta_body(
+            callback.message,
+            state,
+            _add_input_text(target_date, lesson_num, "Введи название предмета."),
+            starosta_input_back_kb(),
+        )
+        await callback.answer()
+        return
 
     if action == "room":
         await state.set_state(StarostaAction.waiting_room)
@@ -930,7 +1071,9 @@ async def on_room_input(message: Message, state: FSMContext) -> None:
         return
     date_iso, lesson_num, subgroup = selected
     target_date = datetime.date.fromisoformat(date_iso)
-    lesson = _find_lesson(user["group_name"], target_date, lesson_num, subgroup)
+    lesson, _is_added = await _resolve_lesson(
+        user["group_name"], target_date, date_iso, lesson_num, subgroup
+    )
     new_room, error = _validate_room(message.text)
     if error:
         await _show_starosta_body(
@@ -979,7 +1122,9 @@ async def on_link_input(message: Message, state: FSMContext) -> None:
         return
     date_iso, lesson_num, subgroup = selected
     target_date = datetime.date.fromisoformat(date_iso)
-    lesson = _find_lesson(user["group_name"], target_date, lesson_num, subgroup)
+    lesson, _is_added = await _resolve_lesson(
+        user["group_name"], target_date, date_iso, lesson_num, subgroup
+    )
     link, error = _validate_online_link(message.text)
     if error:
         await _show_starosta_body(
@@ -1028,7 +1173,9 @@ async def on_note_input(message: Message, state: FSMContext) -> None:
         return
     date_iso, lesson_num, subgroup = selected
     target_date = datetime.date.fromisoformat(date_iso)
-    lesson = _find_lesson(user["group_name"], target_date, lesson_num, subgroup)
+    lesson, _is_added = await _resolve_lesson(
+        user["group_name"], target_date, date_iso, lesson_num, subgroup
+    )
     note, error = _validate_note(message.text)
     if error:
         await _show_starosta_body(
@@ -1059,6 +1206,51 @@ async def on_note_input(message: Message, state: FSMContext) -> None:
     await _render_current_actions(message, state, user)
 
 
+@router.message(StarostaAction.waiting_add_subject)
+async def on_add_subject_input(message: Message, state: FSMContext) -> None:
+    """Ввод названия пары, добавляемой на пустой слот."""
+    user = await get_user(message.from_user.id)
+    if not user:
+        await state.clear()
+        return
+    await delete_user_message(message)
+
+    selected = _selected_pair(await state.get_data())
+    if not selected:
+        await state.set_state(None)
+        return
+    date_iso, lesson_num, _subgroup = selected
+    # Добавленная пара всегда общегрупповая (без деления на подгруппы).
+    subgroup = None
+    target_date = datetime.date.fromisoformat(date_iso)
+    subject, error = _validate_subject(message.text)
+    if error:
+        await _show_starosta_body(
+            message,
+            state,
+            _add_input_text(target_date, lesson_num, f"{error}\n\nВведи название предмета."),
+            starosta_input_back_kb(),
+        )
+        return
+
+    await add_override(
+        user["group_name"],
+        date_iso,
+        lesson_num,
+        "add",
+        new_value=subject,
+        comment="Пара добавлена старостой",
+        created_by=message.from_user.id,
+        subgroup=subgroup,
+    )
+    await _send_change_alerts(
+        message.bot, user["group_name"], date_iso, lesson_num, "add", subgroup=subgroup
+    )
+    # Переставляем выбор на общегрупповую пару, чтобы дальше её можно было редактировать.
+    await state.update_data(starosta_subgroup=_subgroup_token(subgroup))
+    await _render_current_actions(message, state, user)
+
+
 async def handle_starosta_back(message: Message, state: FSMContext) -> bool:
     """Совместимость со старой reply-кнопкой Назад."""
     data = await state.get_data()
@@ -1072,16 +1264,18 @@ async def handle_starosta_back(message: Message, state: FSMContext) -> bool:
     if screen in {
         "lessons",
         "actions",
+        "empty_slot",
         "room_input",
         "online_input",
         "note_input",
+        "add_input",
         "cancel_confirm",
         "rollback_confirm",
     }:
         date_iso = data.get("starosta_date")
         if screen == "lessons" or not date_iso:
             await _render_dates(message, state, bool(data.get("starosta_next_week")))
-        elif screen == "actions":
+        elif screen in {"actions", "empty_slot"}:
             await _render_lessons(message, state, user, str(date_iso))
         else:
             await _render_current_actions(message, state, user)

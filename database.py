@@ -13,8 +13,9 @@ from config import DB_PATH, GROUPS
 logger = logging.getLogger(__name__)
 
 VALID_ROLES = {"student", "starosta", "admin"}
-VALID_OVERRIDE_TYPES = {"cancel", "room_change", "online", "note", "reorder"}
+VALID_OVERRIDE_TYPES = {"cancel", "room_change", "online", "note", "reorder", "add"}
 VALID_SUBGROUPS = {1, 2}
+VALID_NOTIFY_TARGETS = {"today", "tomorrow"}
 
 
 def _ensure_group(group_name: str) -> None:
@@ -66,6 +67,8 @@ async def init_db() -> None:
                 daily_notify_time TEXT DEFAULT '08:00',
                 daily_notify_sound INTEGER DEFAULT 1,
                 daily_notify_last_date TEXT,
+                daily_notify_last_msg_id INTEGER,
+                daily_notify_target TEXT DEFAULT 'today',
                 change_alert_enabled INTEGER DEFAULT 0,
                 change_alert_sound INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT (datetime('now'))
@@ -84,6 +87,8 @@ async def init_db() -> None:
             ("daily_notify_time", "TEXT DEFAULT '08:00'"),
             ("daily_notify_sound", "INTEGER DEFAULT 1"),
             ("daily_notify_last_date", "TEXT"),
+            ("daily_notify_last_msg_id", "INTEGER"),
+            ("daily_notify_target", "TEXT DEFAULT 'today'"),
             ("change_alert_enabled", "INTEGER DEFAULT 0"),
             ("change_alert_sound", "INTEGER DEFAULT 1"),
         ]:
@@ -235,12 +240,27 @@ async def update_user_daily_notify(
         await db.commit()
 
 
-async def mark_user_daily_notify_sent(user_id: int, sent_date: str) -> None:
-    """Запомнить дату последней ежедневной отправки пользователю."""
+async def update_user_daily_notify_target(user_id: int, target: str) -> None:
+    """Переключить, на какой день присылать ежедневное расписание: 'today' или 'tomorrow'."""
+    if target not in VALID_NOTIFY_TARGETS:
+        raise ValueError(f"Некорректный режим уведомления: {target}")
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "UPDATE users SET daily_notify_last_date = ? WHERE user_id = ?",
-            (sent_date, user_id),
+            "UPDATE users SET daily_notify_target = ? WHERE user_id = ?",
+            (target, user_id),
+        )
+        await db.commit()
+
+
+async def mark_user_daily_notify_sent(
+    user_id: int, sent_date: str, msg_id: int | None = None
+) -> None:
+    """Запомнить дату и message_id последней ежедневной отправки пользователю."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET daily_notify_last_date = ?, daily_notify_last_msg_id = ? "
+            "WHERE user_id = ?",
+            (sent_date, msg_id, user_id),
         )
         await db.commit()
 
