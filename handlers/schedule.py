@@ -232,7 +232,9 @@ def _added_lesson(ov: dict) -> dict:
     return {
         "num": num,
         "subject": str(ov.get("new_value") or "").strip() or f"Пара {num}",
-        "time": PAIR_TIMES.get(num, ""),
+        # Если для номера пары нет стандартного времени звонков — прочерк,
+        # чтобы не висел пустой разделитель.
+        "time": PAIR_TIMES.get(num) or "—",
         "_added": True,
     }
 
@@ -286,6 +288,11 @@ def _apply_overrides(lessons: list[dict], overrides: list[dict]) -> list[dict]:
                     lesson["_online_link"] = ov.get("new_value", "")
                     lesson["_override_comment"] = ov.get("comment", "Онлайн")
                     lesson["_has_override"] = True
+                elif ov_type == "rename":
+                    new_subject = str(ov.get("new_value") or "").strip()
+                    if new_subject:
+                        lesson["subject"] = new_subject
+                        lesson["_has_override"] = True
                 elif ov_type == "note":
                     note = str(ov.get("new_value") or ov.get("comment") or "").strip()
                     if note:

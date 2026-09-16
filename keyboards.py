@@ -431,13 +431,23 @@ def starosta_day_lessons_kb(lessons: list[dict]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def starosta_lesson_actions_kb() -> InlineKeyboardMarkup:
-    """Действия с выбранной парой."""
+def starosta_pair_actions_kb(is_added: bool = False) -> InlineKeyboardMarkup:
+    """Единый набор действий с парой — общий для обычных и добавленных.
+
+    Отличается только последняя кнопка: у обычной пары «откатить изменения»,
+    у добавленной — «удалить пару».
+    """
+    last_text = "🗑 Удалить пару" if is_added else "↩️ Откатить изменения"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="✏️ Изменить аудиторию", callback_data="starosta_action:room"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏷 Изменить название", callback_data="starosta_action:rename"
                 )
             ],
             [
@@ -451,11 +461,7 @@ def starosta_lesson_actions_kb() -> InlineKeyboardMarkup:
                     text="📝 Добавить примечание", callback_data="starosta_action:note"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="↩️ Откатить изменения", callback_data="starosta_action:rollback"
-                )
-            ],
+            [InlineKeyboardButton(text=last_text, callback_data="starosta_action:rollback")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="starosta_back:lessons")],
         ]
     )
@@ -466,26 +472,6 @@ def starosta_empty_slot_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить пару", callback_data="starosta_action:add")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="starosta_back:lessons")],
-        ]
-    )
-
-
-def starosta_added_pair_kb() -> InlineKeyboardMarkup:
-    """Действия с парой, добавленной старостой на пустой слот."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✏️ Изменить аудиторию", callback_data="starosta_action:room"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📝 Добавить примечание", callback_data="starosta_action:note"
-                )
-            ],
-            [InlineKeyboardButton(text="🗑 Удалить пару", callback_data="starosta_action:rollback")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="starosta_back:lessons")],
         ]
     )

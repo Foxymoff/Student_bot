@@ -203,3 +203,46 @@ def test_split_text_splits_long_text_without_dropping_lines():
     chunks = schedule._split_text("line1\nline2\nline3", max_len=11)
 
     assert chunks == ["line1\nline2", "line3"]
+
+
+def test_apply_overrides_renames_regular_lesson():
+    lessons = [{"num": 1, "subject": "Физика", "room": "101"}]
+    overrides = [
+        {"lesson_num": 1, "subgroup": None, "override_type": "rename", "new_value": "Астрофизика"},
+    ]
+
+    result = schedule._apply_overrides(lessons, overrides)
+
+    assert result[0]["subject"] == "Астрофизика"
+    assert result[0]["_has_override"] is True
+
+
+def test_apply_overrides_added_lesson_can_be_renamed():
+    lessons: list[dict] = []
+    overrides = [
+        {"lesson_num": 5, "subgroup": None, "override_type": "add", "new_value": "Проект"},
+        {
+            "lesson_num": 5,
+            "subgroup": None,
+            "override_type": "rename",
+            "new_value": "Проект защита",
+        },
+    ]
+
+    result = schedule._apply_overrides(lessons, overrides)
+
+    assert len(result) == 1
+    assert result[0]["_added"] is True
+    assert result[0]["subject"] == "Проект защита"
+
+
+def test_added_lesson_at_pair_5_has_evening_time():
+    lessons: list[dict] = []
+    overrides = [
+        {"lesson_num": 5, "subgroup": None, "override_type": "add", "new_value": "Проект"},
+    ]
+
+    result = schedule._apply_overrides(lessons, overrides)
+
+    # 5-я пара: +10 минут от конца 4-й (16:40) и 1.5 часа.
+    assert result[0]["time"] == "16:50-18:20"
