@@ -132,6 +132,20 @@ async def init_db() -> None:
                 note TEXT
             )
         """)
+        # Отправленные алерты об изменениях — для автоудаления через 24 часа,
+        # если пользователь не убрал их сам.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pending_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pending_alerts_created "
+            "ON pending_alerts (created_at)"
+        )
         await db.commit()
     logger.info("База данных инициализирована")
 
@@ -306,6 +320,54 @@ async def get_users_by_group(group_name: str) -> list[dict]:
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+
+# ── Алерты об изменениях (автоудаление) ───────────────────
+
+
+async def add_pending_alert(user_id: int, message_id: int) -> None:
+    """Запомнить отправленный алерт для автоудаления через 24 часа."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO pending_alerts (user_id, message_id) VALUES (?, ?)",
+            (user_id, message_id),
+        )
+        await db.commit()
+
+
+async def get_expired_alerts() -> list[dict]:
+    """Алерты старше 24 часов, которые пора удалить."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, user_id, message_id FROM pending_alerts "
+            "WHERE created_at <= datetime('now', '-24 hours')"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def delete_pending_alerts(alert_ids: list[int]) -> None:
+    """Удалить записи об алертах по их id."""
+    if not alert_ids:
+        return
+    placeholders = ",".join("?" * len(alert_ids))
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            f"DELETE FROM pending_alerts WHERE id IN ({placeholders})",
+            tuple(alert_ids),
+        )
+        await db.commit()
+
+
+async def delete_pending_alert(user_id: int, message_id: int) -> None:
+    """Убрать запись об алерте (например, когда пользователь удалил его сам)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM pending_alerts WHERE user_id = ? AND message_id = ?",
+            (user_id, message_id),
+        )
+        await db.commit()
 
 
 # ── Роли ──────────────────────────────────────────────────

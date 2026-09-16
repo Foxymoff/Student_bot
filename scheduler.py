@@ -9,7 +9,13 @@ from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import APP_TIMEZONE, app_now, app_today
-from database import get_all_users, get_overrides, mark_user_daily_notify_sent
+from database import (
+    delete_pending_alerts,
+    get_all_users,
+    get_expired_alerts,
+    get_overrides,
+    mark_user_daily_notify_sent,
+)
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.schedule import (
     _has_added_override,
@@ -95,6 +101,21 @@ async def send_due_daily_schedules(bot: Bot) -> None:
         logger.info("Ежедневное расписание отправлено (%d пользователей)", sent_count)
 
 
+async def cleanup_expired_alerts(bot: Bot) -> None:
+    """Удалить алерты об изменениях, которым больше 24 часов."""
+    alerts = await get_expired_alerts()
+    if not alerts:
+        return
+
+    for alert in alerts:
+        try:
+            await bot.delete_message(alert["user_id"], alert["message_id"])
+        except Exception:
+            pass  # сообщение уже удалено или недоступно
+    await delete_pending_alerts([alert["id"] for alert in alerts])
+    logger.info("Автоудалены устаревшие алерты (%d шт.)", len(alerts))
+
+
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Настроить и вернуть планировщик задач."""
     scheduler = AsyncIOScheduler(timezone=APP_TIMEZONE)
@@ -110,5 +131,18 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    logger.info("Планировщик настроен: проверка ежедневных расписаний каждую минуту")
+    # Автоудаление алертов об изменениях старше 24 часов.
+    scheduler.add_job(
+        cleanup_expired_alerts,
+        trigger="interval",
+        minutes=10,
+        next_run_time=app_now(),
+        args=[bot],
+        id="cleanup_alerts",
+        replace_existing=True,
+    )
+
+    logger.info(
+        "Планировщик настроен: ежедневные расписания (1 мин) + автоудаление алертов (10 мин)"
+    )
     return scheduler

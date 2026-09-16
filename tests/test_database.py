@@ -1,5 +1,6 @@
 import json
 
+import aiosqlite
 import pytest
 import pytest_asyncio
 
@@ -104,3 +105,52 @@ async def test_add_override_validates_input(temp_db, kwargs, message):
 
     with pytest.raises(ValueError, match=message):
         await database.add_override(**params)
+
+
+@pytest.mark.asyncio
+async def test_pending_alerts_expire_after_24h(temp_db):
+    # Свежий алерт ещё не истёк.
+    await database.add_pending_alert(100, 555)
+    assert await database.get_expired_alerts() == []
+
+    # Ставим ему возраст 25 часов — теперь он должен попасть в устаревшие.
+    async with aiosqlite.connect(temp_db) as db:
+        await db.execute(
+            "UPDATE pending_alerts SET created_at = datetime('now', '-25 hours') "
+            "WHERE user_id = ? AND message_id = ?",
+            (100, 555),
+        )
+        await db.commit()
+
+    expired = await database.get_expired_alerts()
+    assert len(expired) == 1
+    assert expired[0]["user_id"] == 100
+    assert expired[0]["message_id"] == 555
+
+    await database.delete_pending_alerts([expired[0]["id"]])
+    assert await database.get_expired_alerts() == []
+
+
+@pytest.mark.asyncio
+async def test_delete_pending_alert_removes_specific_row(temp_db):
+    await database.add_pending_alert(1, 10)
+    await database.add_pending_alert(1, 11)
+
+    await database.delete_pending_alert(1, 10)
+
+    async with aiosqlite.connect(temp_db) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT message_id FROM pending_alerts WHERE user_id = 1")
+        rows = [r["message_id"] for r in await cursor.fetchall()]
+    assert rows == [11]
+
+
+@pytest.mark.asyncio
+async def test_delete_pending_alerts_empty_is_noop(temp_db):
+    await database.add_pending_alert(1, 10)
+    await database.delete_pending_alerts([])
+
+    async with aiosqlite.connect(temp_db) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM pending_alerts")
+        (count,) = await cursor.fetchone()
+    assert count == 1
