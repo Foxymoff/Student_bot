@@ -13,8 +13,8 @@ from aiogram.types import BotCommand, MenuButtonCommands
 from config import BOT_TOKEN
 from database import init_db
 from handlers import setup_routers
-from middlewares import SilentByDefaultMiddleware
-from scheduler import setup_scheduler
+from middlewares import ProfileTrackingMiddleware, SilentByDefaultMiddleware
+from scheduler import setup_scheduler, warm_profiles
 
 # Настройка логирования
 logging.basicConfig(
@@ -44,6 +44,11 @@ async def main() -> None:
     bot.session.middleware(SilentByDefaultMiddleware())
     dp = Dispatcher(storage=MemoryStorage())
 
+    # Держим в БД актуальные имя/@username для поиска в админке.
+    profile_tracking = ProfileTrackingMiddleware()
+    dp.message.outer_middleware(profile_tracking)
+    dp.callback_query.outer_middleware(profile_tracking)
+
     # Подключение роутеров
     root_router = setup_routers()
     dp.include_router(root_router)
@@ -51,6 +56,10 @@ async def main() -> None:
     # Запуск планировщика
     scheduler = setup_scheduler(bot)
     scheduler.start()
+
+    # Разовый прогрев профилей (имя/@username) для поиска в админке — в фоне,
+    # чтобы не задерживать запуск polling.
+    asyncio.create_task(warm_profiles(bot))
 
     # Меню команд не должно блокировать запуск polling, если Telegram API отвечает долго.
     try:

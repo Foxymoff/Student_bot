@@ -519,6 +519,7 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     """Меню администратора."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Найти пользователя", callback_data="admin:search")],
             [
                 InlineKeyboardButton(
                     text="👑 Назначить старосту", callback_data="admin:set_starosta"
@@ -548,23 +549,88 @@ def _admin_user_label(user: dict) -> str:
     return f"{name} · {user['group_name']}"
 
 
-def admin_users_kb(users: list[dict]) -> InlineKeyboardMarkup:
-    """Список пользователей для назначения старостой."""
-    buttons = []
-    for u in users:
-        label = _admin_user_label(u)
+# Telegram не принимает инлайн-клавиатуры больше ~100 кнопок. Оставляем запас
+# под кнопку-подсказку и не строим гигантский список — «хвост» уводим в поиск.
+ADMIN_LIST_LIMIT = 90
+
+
+def _admin_list_kb(users: list[dict], action: str) -> InlineKeyboardMarkup:
+    """Список пользователей с action-кнопками (с ограничением по числу кнопок)."""
+    buttons = [
+        [InlineKeyboardButton(text=_admin_user_label(u), callback_data=f"{action}:{u['user_id']}")]
+        for u in users[:ADMIN_LIST_LIMIT]
+    ]
+    if len(users) > ADMIN_LIST_LIMIT:
+        hidden = len(users) - ADMIN_LIST_LIMIT
         buttons.append(
-            [InlineKeyboardButton(text=label, callback_data=f"admin_set_starosta:{u['user_id']}")]
+            [
+                InlineKeyboardButton(
+                    text=f"🔍 Ещё {hidden} — найти поиском", callback_data="admin:search"
+                )
+            ]
         )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def admin_users_kb(users: list[dict]) -> InlineKeyboardMarkup:
+    """Список пользователей для назначения старостой."""
+    return _admin_list_kb(users, "admin_set_starosta")
+
+
 def admin_starostas_kb(users: list[dict]) -> InlineKeyboardMarkup:
     """Список старост для снятия."""
+    return _admin_list_kb(users, "admin_rm_starosta")
+
+
+# Сколько результатов поиска показываем плитками за раз.
+ADMIN_SEARCH_LIMIT = 15
+
+_ROLE_MARK = {"admin": "⚙️", "starosta": "👑"}
+
+
+def _admin_search_label(user: dict) -> str:
+    """Подпись результата поиска: роль-маркер + имя · группа."""
+    mark = _ROLE_MARK.get(str(user.get("role") or "student"))
+    label = _admin_user_label(user)
+    return f"{mark} {label}" if mark else label
+
+
+def admin_search_results_kb(users: list[dict]) -> InlineKeyboardMarkup:
+    """Плитки найденных пользователей (открывают карточку)."""
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=_admin_search_label(u), callback_data=f"admin_user:{u['user_id']}"
+            )
+        ]
+        for u in users[:ADMIN_SEARCH_LIMIT]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def admin_user_card_kb(user: dict) -> InlineKeyboardMarkup:
+    """Действия в карточке пользователя (зависят от текущей роли)."""
+    role = str(user.get("role") or "student")
     buttons = []
-    for u in users:
-        label = _admin_user_label(u)
+    if role == "student":
         buttons.append(
-            [InlineKeyboardButton(text=label, callback_data=f"admin_rm_starosta:{u['user_id']}")]
+            [
+                InlineKeyboardButton(
+                    text="👑 Назначить старостой",
+                    callback_data=f"admin_set_starosta:{user['user_id']}",
+                )
+            ]
         )
+    elif role == "starosta":
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🚫 Снять старосту",
+                    callback_data=f"admin_rm_starosta:{user['user_id']}",
+                )
+            ]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="◀️ К результатам", callback_data="admin:search_back")]
+    )
     return InlineKeyboardMarkup(inline_keyboard=buttons)

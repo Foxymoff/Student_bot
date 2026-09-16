@@ -154,3 +154,54 @@ async def test_delete_pending_alerts_empty_is_noop(temp_db):
         cursor = await db.execute("SELECT COUNT(*) FROM pending_alerts")
         (count,) = await cursor.fetchone()
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_search_users_by_name_username_group_and_id(temp_db):
+    await database.add_user(101, GROUP_A)
+    await database.update_user_profile(101, "ivanko", "Иван", "Петров")
+    await database.add_user(202, GROUP_B)
+    await database.update_user_profile(202, None, "Пётр", "Иванов")
+
+    # По имени
+    by_name = await database.search_users("иван")
+    assert {u["user_id"] for u in by_name} == {101, 202}  # Иван и Иванов
+
+    # По @username (лидирующий @ игнорируется)
+    by_user = await database.search_users("@ivanko")
+    assert [u["user_id"] for u in by_user] == [101]
+
+    # По фамилии
+    by_last = await database.search_users("Петров")
+    assert [u["user_id"] for u in by_last] == [101]
+
+    # По группе
+    by_group = await database.search_users(GROUP_B)
+    assert [u["user_id"] for u in by_group] == [202]
+
+    # По ID
+    by_id = await database.search_users("202")
+    assert [u["user_id"] for u in by_id] == [202]
+
+
+@pytest.mark.asyncio
+async def test_search_users_empty_query_returns_all(temp_db):
+    await database.add_user(1, GROUP_A)
+    await database.add_user(2, GROUP_B)
+
+    everyone = await database.search_users("   ")
+    assert {u["user_id"] for u in everyone} == {1, 2}
+
+
+@pytest.mark.asyncio
+async def test_update_user_profile_only_touches_existing(temp_db):
+    # Незарегистрированного не создаём.
+    await database.update_user_profile(999, "ghost", "No", "Body")
+    assert await database.get_user(999) is None
+
+    await database.add_user(5, GROUP_A)
+    await database.update_user_profile(5, "nick", "Имя", "Фамилия")
+    user = await database.get_user(5)
+    assert user["username"] == "nick"
+    assert user["first_name"] == "Имя"
+    assert user["last_name"] == "Фамилия"

@@ -2,6 +2,7 @@
 Фоновые уведомления: ежедневное расписание.
 """
 
+import asyncio
 import datetime
 import logging
 
@@ -15,6 +16,7 @@ from database import (
     get_expired_alerts,
     get_overrides,
     mark_user_daily_notify_sent,
+    update_user_profile,
 )
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.schedule import (
@@ -114,6 +116,29 @@ async def cleanup_expired_alerts(bot: Bot) -> None:
             pass  # сообщение уже удалено или недоступно
     await delete_pending_alerts([alert["id"] for alert in alerts])
     logger.info("Автоудалены устаревшие алерты (%d шт.)", len(alerts))
+
+
+async def warm_profiles(bot: Bot) -> None:
+    """Разово подтянуть имя/@username всех пользователей в БД — для поиска в админке.
+
+    Обрабатываем только тех, у кого профиль ещё пустой, с паузами между
+    запросами, чтобы не упереться в лимиты Telegram. Безопасно запускать
+    повторно: уже заполненные профили пропускаются.
+    """
+    users = await get_all_users()
+    updated = 0
+    for user in users:
+        if user.get("username") or user.get("first_name") or user.get("last_name"):
+            continue
+        try:
+            chat = await bot.get_chat(user["user_id"])
+        except Exception:
+            continue  # пользователь заблокировал бота или недоступен
+        await update_user_profile(user["user_id"], chat.username, chat.first_name, chat.last_name)
+        updated += 1
+        await asyncio.sleep(0.2)
+    if updated:
+        logger.info("Прогрев профилей: обновлено %d", updated)
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:

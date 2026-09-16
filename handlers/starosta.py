@@ -505,7 +505,7 @@ async def _show_starosta_body(
 
 async def _replace_with_main_menu(message: Message, state: FSMContext, user: dict | None) -> None:
     """Вернуться в главное меню."""
-    role = user.get("role", "student") if user else "student"
+    role = (user.get("role") or "student") if user else "student"
     sent = await message.answer(
         MAIN_MENU_TEXT,
         reply_markup=main_menu_kb(role, not bool(user and user.get("extra_in_schedule"))),

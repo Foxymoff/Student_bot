@@ -197,7 +197,7 @@ async def on_extra_edit(callback: CallbackQuery, state: FSMContext) -> None:
         await update_user_extra_in_schedule(callback.from_user.id, False)
     await callback.answer("Готово · доп. занятия обновлены", show_alert=True)
     updated_user = await get_user(callback.from_user.id)
-    role = updated_user.get("role", "student") if updated_user else "student"
+    role = (updated_user.get("role") or "student") if updated_user else "student"
     sent = await callback.message.answer(
         MAIN_MENU_TEXT,
         reply_markup=main_menu_kb(

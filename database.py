@@ -71,6 +71,9 @@ async def init_db() -> None:
                 daily_notify_target TEXT DEFAULT 'today',
                 change_alert_enabled INTEGER DEFAULT 0,
                 change_alert_sound INTEGER DEFAULT 1,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
@@ -91,6 +94,9 @@ async def init_db() -> None:
             ("daily_notify_target", "TEXT DEFAULT 'today'"),
             ("change_alert_enabled", "INTEGER DEFAULT 0"),
             ("change_alert_sound", "INTEGER DEFAULT 1"),
+            ("username", "TEXT"),
+            ("first_name", "TEXT"),
+            ("last_name", "TEXT"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
@@ -320,6 +326,52 @@ async def get_users_by_group(group_name: str) -> list[dict]:
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+
+async def update_user_profile(
+    user_id: int,
+    username: str | None,
+    first_name: str | None,
+    last_name: str | None,
+) -> None:
+    """Сохранить Telegram-профиль пользователя (для поиска в админке).
+
+    Обновляет только уже существующую запись — для незарегистрированных
+    пользователей запрос ничего не делает.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET username = ?, first_name = ?, last_name = ? WHERE user_id = ?",
+            (username, first_name, last_name, user_id),
+        )
+        await db.commit()
+
+
+async def search_users(query: str) -> list[dict]:
+    """Поиск пользователей по имени, @username, группе или ID.
+
+    Пустой запрос возвращает всех. Совпадение — подстрокой, без учёта регистра.
+    Фильтрация в Python, а не в SQL: встроенный SQLite lower() не понижает
+    регистр кириллицы, поэтому поиск по русским именам делаем на стороне кода.
+    """
+    q = query.strip().lstrip("@").lower()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM users ORDER BY group_name, user_id")
+        rows = [dict(r) for r in await cursor.fetchall()]
+
+    if not q:
+        return rows
+
+    result = []
+    for user in rows:
+        haystack = " ".join(
+            str(user.get(field) or "")
+            for field in ("username", "first_name", "last_name", "group_name")
+        ).lower()
+        if q in haystack or (q.isdigit() and q == str(user["user_id"])):
+            result.append(user)
+    return result
 
 
 # ── Алерты об изменениях (автоудаление) ───────────────────
