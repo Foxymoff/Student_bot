@@ -34,12 +34,11 @@ from keyboards import (
     alert_delete_kb,
     main_menu_kb,
     main_menu_only_kb,
-    starosta_added_pair_kb,
     starosta_confirm_kb,
     starosta_day_lessons_kb,
     starosta_empty_slot_kb,
     starosta_input_back_kb,
-    starosta_lesson_actions_kb,
+    starosta_pair_actions_kb,
     starosta_week_dates_kb,
 )
 from message_style import HTML_PARSE_MODE, MAIN_MENU_TEXT, no_access_text, title, titled
@@ -52,8 +51,8 @@ ROOM_MAX_LEN = 40
 NOTE_MAX_LEN = 250
 ONLINE_LINK_MAX_LEN = 300
 SUBJECT_MAX_LEN = 80
-# Максимум пар в дне (обычные пары 1..4; «нулевая» 0 — отдельная, её не добавляем).
-MAX_PAIRS = 4
+# Максимум пар в дне (обычные пары 1..5; «нулевая» 0 — отдельная, её не добавляем).
+MAX_PAIRS = 5
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -73,6 +72,7 @@ class StarostaAction(StatesGroup):
     waiting_link = State()
     waiting_note = State()
     waiting_add_subject = State()
+    waiting_rename = State()
 
 
 def _esc(value: object) -> str:
@@ -276,6 +276,16 @@ def _added_override(overrides: list[dict]) -> dict | None:
     return None
 
 
+def _apply_rename(lesson: dict, overrides: list[dict]) -> dict:
+    """Наложить переименование пары (override типа rename) на её название."""
+    for override in overrides:
+        if override.get("override_type") == "rename":
+            new_subject = str(override.get("new_value") or "").strip()
+            if new_subject:
+                lesson["subject"] = new_subject
+    return lesson
+
+
 async def _resolve_lesson(
     group_name: str,
     target_date: datetime.date,
@@ -284,14 +294,16 @@ async def _resolve_lesson(
     subgroup: int | None,
 ) -> tuple[dict, bool]:
     """Вернуть пару (реальную или добавленную старостой) и флаг «добавлена»."""
-    lesson = _find_lesson(group_name, target_date, lesson_num, subgroup)
-    if lesson:
-        return lesson, False
     overrides = await get_lesson_overrides(group_name, date_iso, lesson_num, subgroup)
-    add_ov = _added_override(overrides)
-    if add_ov:
-        return _added_lesson(add_ov), True
-    return {}, False
+    lesson = _find_lesson(group_name, target_date, lesson_num, subgroup)
+    is_added = False
+    if not lesson:
+        add_ov = _added_override(overrides)
+        if not add_ov:
+            return {}, False
+        lesson = _added_lesson(add_ov)
+        is_added = True
+    return _apply_rename(dict(lesson), overrides), is_added
 
 
 def _empty_slot_text(target_date: datetime.date, lesson_num: int) -> str:
@@ -560,7 +572,9 @@ async def _render_lessons(message: Message, state: FSMContext, user: dict, date_
 
     def _real_button(entry: dict, num: int) -> dict:
         subgroup = entry.get("_target_subgroup")
-        status = _pair_status(entry, _overrides_for_num(overrides, num, subgroup))
+        num_overrides = _overrides_for_num(overrides, num, subgroup)
+        status = _pair_status(entry, num_overrides)
+        entry = _apply_rename(dict(entry), num_overrides)
         subject = _short_name(_lesson_subject(entry, num))
         status_label = _pair_status_label(entry, status)
         return {
@@ -578,8 +592,9 @@ async def _render_lessons(message: Message, state: FSMContext, user: dict, date_
         if num in entries_by_num:
             lesson_buttons.extend(_real_button(entry, num) for entry in entries_by_num[num])
         elif num in add_by_num:
-            lesson = _added_lesson(add_by_num[num])
-            status = _pair_status(lesson, _overrides_for_num(overrides, num, None))
+            num_overrides = _overrides_for_num(overrides, num, None)
+            lesson = _apply_rename(_added_lesson(add_by_num[num]), num_overrides)
+            status = _pair_status(lesson, num_overrides)
             subject = _short_name(_lesson_subject(lesson, num))
             status_label = _pair_status_label(lesson, status)
             lesson_buttons.append(
@@ -653,7 +668,7 @@ async def _render_actions(
         message,
         state,
         _pair_action_text(target_date, lesson_num, subgroup, lesson, status),
-        starosta_added_pair_kb() if is_added else starosta_lesson_actions_kb(),
+        starosta_pair_actions_kb(is_added),
     )
     await state.update_data(
         _starosta_screen="actions",
@@ -942,6 +957,22 @@ async def on_starosta_action(callback: CallbackQuery, state: FSMContext) -> None
                 subgroup,
                 lesson,
                 "Введи номер аудитории.",
+            ),
+            starosta_input_back_kb(),
+        )
+    elif action == "rename":
+        await state.set_state(StarostaAction.waiting_rename)
+        await state.update_data(_starosta_screen="rename_input")
+        await _show_starosta_body(
+            callback.message,
+            state,
+            _input_text(
+                "Новое название",
+                target_date,
+                lesson_num,
+                subgroup,
+                lesson,
+                "Введи новое название пары.",
             ),
             starosta_input_back_kb(),
         )
@@ -1257,6 +1288,55 @@ async def on_add_subject_input(message: Message, state: FSMContext) -> None:
     await _render_current_actions(message, state, user)
 
 
+@router.message(StarostaAction.waiting_rename)
+async def on_rename_input(message: Message, state: FSMContext) -> None:
+    """Ввод нового названия пары (переименование). Студентов не алертим — тихо."""
+    user = await get_user(message.from_user.id)
+    if not user:
+        await state.clear()
+        return
+    await delete_user_message(message)
+
+    selected = _selected_pair(await state.get_data())
+    if not selected:
+        await state.set_state(None)
+        return
+    date_iso, lesson_num, subgroup = selected
+    target_date = datetime.date.fromisoformat(date_iso)
+    lesson, _is_added = await _resolve_lesson(
+        user["group_name"], target_date, date_iso, lesson_num, subgroup
+    )
+    new_subject, error = _validate_subject(message.text)
+    if error:
+        await _show_starosta_body(
+            message,
+            state,
+            _input_text(
+                "Новое название",
+                target_date,
+                lesson_num,
+                subgroup,
+                lesson,
+                f"{error}\n\nВведи новое название пары.",
+            ),
+            starosta_input_back_kb(),
+        )
+        return
+
+    await add_override(
+        user["group_name"],
+        date_iso,
+        lesson_num,
+        "rename",
+        new_value=new_subject,
+        comment="Название изменено",
+        created_by=message.from_user.id,
+        subgroup=subgroup,
+    )
+    # Переименование — тихое изменение, без рассылки алертов студентам.
+    await _render_current_actions(message, state, user)
+
+
 async def handle_starosta_back(message: Message, state: FSMContext) -> bool:
     """Совместимость со старой reply-кнопкой Назад."""
     data = await state.get_data()
@@ -1275,6 +1355,7 @@ async def handle_starosta_back(message: Message, state: FSMContext) -> bool:
         "online_input",
         "note_input",
         "add_input",
+        "rename_input",
         "cancel_confirm",
         "rollback_confirm",
     }:

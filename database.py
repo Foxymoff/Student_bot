@@ -13,7 +13,7 @@ from config import DB_PATH, GROUPS
 logger = logging.getLogger(__name__)
 
 VALID_ROLES = {"student", "starosta", "admin"}
-VALID_OVERRIDE_TYPES = {"cancel", "room_change", "online", "note", "reorder", "add"}
+VALID_OVERRIDE_TYPES = {"cancel", "room_change", "online", "note", "reorder", "add", "rename"}
 VALID_SUBGROUPS = {1, 2}
 VALID_NOTIFY_TARGETS = {"today", "tomorrow"}
 
