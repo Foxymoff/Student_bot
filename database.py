@@ -143,8 +143,7 @@ async def init_db() -> None:
             )
         """)
         await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_pending_alerts_created "
-            "ON pending_alerts (created_at)"
+            "CREATE INDEX IF NOT EXISTS idx_pending_alerts_created ON pending_alerts (created_at)"
         )
         await db.commit()
     logger.info("База данных инициализирована")
