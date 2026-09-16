@@ -173,8 +173,8 @@ async def _edit_admin_body(
     try:
         await message.bot.edit_message_text(
             text,
-            message.chat.id,
-            body_id,
+            chat_id=message.chat.id,
+            message_id=body_id,
             reply_markup=reply_markup,
             parse_mode=parse_mode,
         )
