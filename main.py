@@ -13,6 +13,7 @@ from aiogram.types import BotCommand, MenuButtonCommands
 from config import BOT_TOKEN
 from database import init_db
 from handlers import setup_routers
+from middlewares import SilentByDefaultMiddleware
 from scheduler import setup_scheduler
 
 # Настройка логирования
@@ -37,6 +38,10 @@ async def main() -> None:
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=None),
     )
+    # Рядовые сообщения (ответы на кнопки, навигация по меню) — без звука.
+    # Звук остаётся только у уведомлений, которые явно задают disable_notification
+    # по настройке пользователя (ежедневное расписание, алерты старосты).
+    bot.session.middleware(SilentByDefaultMiddleware())
     dp = Dispatcher(storage=MemoryStorage())
 
     # Подключение роутеров
