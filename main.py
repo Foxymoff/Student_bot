@@ -7,14 +7,18 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, MenuButtonCommands
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, FSM_DB_PATH
 from database import init_db
 from handlers import setup_routers
-from middlewares import ProfileTrackingMiddleware, SilentByDefaultMiddleware
+from middlewares import (
+    ProfileTrackingMiddleware,
+    SilentByDefaultMiddleware,
+    ThrottleMiddleware,
+)
 from scheduler import setup_scheduler, warm_profiles
+from storage import SQLiteStorage
 
 # Настройка логирования
 logging.basicConfig(
@@ -42,7 +46,15 @@ async def main() -> None:
     # Звук остаётся только у уведомлений, которые явно задают disable_notification
     # по настройке пользователя (ежедневное расписание, алерты старосты).
     bot.session.middleware(SilentByDefaultMiddleware())
-    dp = Dispatcher(storage=MemoryStorage())
+    # Персистентное FSM-хранилище: состояние (ui_msg_ids, навигация, флоу)
+    # переживает рестарт контейнера.
+    dp = Dispatcher(storage=SQLiteStorage(FSM_DB_PATH))
+
+    # Троттлинг спама кнопок — внешний слой, чтобы отбрасывать лишнее до всего
+    # остального (сериализует работу с ui_msg_ids, снимает нагрузку).
+    throttle = ThrottleMiddleware()
+    dp.message.outer_middleware(throttle)
+    dp.callback_query.outer_middleware(throttle)
 
     # Держим в БД актуальные имя/@username для поиска в админке.
     profile_tracking = ProfileTrackingMiddleware()

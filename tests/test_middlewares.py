@@ -53,3 +53,44 @@ async def test_method_without_notification_field_is_untouched():
     assert result == "sent"
     assert sent is method
     assert "disable_notification" not in type(sent).model_fields
+
+
+from unittest.mock import MagicMock  # noqa: E402
+
+from middlewares import ThrottleMiddleware  # noqa: E402
+
+
+async def test_throttle_drops_repeat_within_interval():
+    mw = ThrottleMiddleware(min_interval=10.0)
+    calls = []
+
+    async def handler(event, data):
+        calls.append(1)
+        return "ok"
+
+    ev = MagicMock()
+    ev.from_user.id = 1
+
+    assert await mw(handler, ev, {}) == "ok"
+    # повтор сразу же — отброшен
+    assert await mw(handler, ev, {}) is None
+    assert len(calls) == 1
+
+
+async def test_throttle_is_per_user_and_allows_after_interval():
+    mw = ThrottleMiddleware(min_interval=0.0)
+    seen = []
+
+    async def handler(event, data):
+        seen.append(event.from_user.id)
+        return "ok"
+
+    a = MagicMock()
+    a.from_user.id = 1
+    b = MagicMock()
+    b.from_user.id = 2
+
+    assert await mw(handler, a, {}) == "ok"
+    assert await mw(handler, b, {}) == "ok"  # другой юзер не заблокирован
+    assert await mw(handler, a, {}) == "ok"  # интервал 0 — снова можно
+    assert seen == [1, 2, 1]

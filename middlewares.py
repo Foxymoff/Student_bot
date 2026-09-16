@@ -3,6 +3,7 @@ Middleware уровня сессии бота и диспетчера.
 """
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -12,7 +13,7 @@ from aiogram.client.session.middlewares.base import (
     NextRequestMiddlewareType,
 )
 from aiogram.methods.base import Response, TelegramMethod, TelegramType
-from aiogram.types import TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from database import update_user_profile
 
@@ -72,3 +73,53 @@ class ProfileTrackingMiddleware(BaseMiddleware):
                 except Exception as exc:
                     logger.debug("Не удалось обновить профиль %s: %s", user.id, exc)
         return await handler(event, data)
+
+
+class ThrottleMiddleware(BaseMiddleware):
+    """Защита от спама кнопками (в т.ч. «Назад»).
+
+    Обрабатывает не больше одного апдейта на пользователя одновременно и не чаще
+    одного раза в ``min_interval`` секунд. Лишние нажатия отбрасываются: у
+    callback гасим «часики», спам-сообщения удаляем. Это сериализует работу с
+    ui_msg_ids и убирает гонки, из-за которых сбивалось бесшовное автоудаление
+    сообщений, а заодно снимает нагрузку с сервера.
+    """
+
+    def __init__(self, min_interval: float = 0.4) -> None:
+        self._min_interval = min_interval
+        self._busy: set[int] = set()
+        self._last: dict[int, float] = {}
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        user = getattr(event, "from_user", None)
+        uid = getattr(user, "id", None)
+        if uid is None:
+            return await handler(event, data)
+
+        now = time.monotonic()
+        if uid in self._busy or now - self._last.get(uid, 0.0) < self._min_interval:
+            await self._reject(event)
+            return None
+
+        self._busy.add(uid)
+        self._last[uid] = now
+        try:
+            return await handler(event, data)
+        finally:
+            self._busy.discard(uid)
+
+    @staticmethod
+    async def _reject(event: TelegramObject) -> None:
+        """Мягко отклонить лишний апдейт."""
+        try:
+            if isinstance(event, CallbackQuery):
+                await event.answer()  # погасить «часики» на кнопке
+            elif isinstance(event, Message):
+                await event.delete()  # убрать спам-сообщение из чата
+        except Exception:
+            pass
