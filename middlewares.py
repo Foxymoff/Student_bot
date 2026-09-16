@@ -85,7 +85,7 @@ class ThrottleMiddleware(BaseMiddleware):
     сообщений, а заодно снимает нагрузку с сервера.
     """
 
-    def __init__(self, min_interval: float = 0.4) -> None:
+    def __init__(self, min_interval: float = 0.2) -> None:
         self._min_interval = min_interval
         self._busy: set[int] = set()
         self._last: dict[int, float] = {}
