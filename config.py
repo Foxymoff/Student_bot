@@ -46,6 +46,9 @@ DATA_DIR: Path = BASE_DIR / "data"
 # Путь к файлу базы данных (DB_DIR позволяет вынести БД в отдельную директорию, напр. в Docker)
 DB_PATH: Path = Path(os.getenv("DB_DIR", str(BASE_DIR))) / "bot.db"
 
+# Отдельный файл для персистентного FSM-хранилища (чтобы состояние переживало рестарт).
+FSM_DB_PATH: Path = DB_PATH.parent / "fsm.db"
+
 # Часовой пояс для дат расписания и уведомлений
 APP_TIMEZONE = ZoneInfo("Europe/Moscow")
 
