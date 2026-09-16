@@ -9,11 +9,27 @@ import time
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import ADMIN_PASSWORD, ADMIN_USER_IDS
-from database import get_all_users, get_user, get_users_by_role, set_user_role
-from keyboards import admin_menu_kb, admin_starostas_kb, admin_users_kb, back_kb, main_menu_kb
+from database import (
+    get_all_users,
+    get_user,
+    get_users_by_role,
+    search_users,
+    set_user_role,
+)
+from keyboards import (
+    ADMIN_SEARCH_LIMIT,
+    admin_menu_kb,
+    admin_search_results_kb,
+    admin_starostas_kb,
+    admin_user_card_kb,
+    admin_users_kb,
+    back_kb,
+    main_menu_kb,
+)
 from message_style import (
     HTML_PARSE_MODE,
     MAIN_MENU_TEXT,
@@ -27,6 +43,11 @@ from ui_messages import delete_user_message, replace_ui_messages
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+class AdminStates(StatesGroup):
+    search_query = State()
+
 
 ADMIN_MAX_ATTEMPTS = 5
 ADMIN_ATTEMPT_WINDOW_SECONDS = 15 * 60
@@ -186,6 +207,7 @@ async def _send_admin_menu(message: Message, state: FSMContext) -> None:
 
 async def _render_admin_menu(message: Message, state: FSMContext) -> None:
     """Вернуться к корневому действию админки."""
+    await state.set_state(None)
     if not await _edit_admin_body(
         message,
         state,
@@ -198,10 +220,98 @@ async def _render_admin_menu(message: Message, state: FSMContext) -> None:
     await state.update_data(_admin_screen="menu")
 
 
+def _admin_search_prompt_kb() -> InlineKeyboardMarkup:
+    """Клавиатура экрана поиска: показать всех сразу."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Показать всех", callback_data="admin:search_all")]
+        ]
+    )
+
+
+def _role_word(role: str) -> str:
+    """Человеческое название роли для карточки."""
+    return {"admin": "администратор", "starosta": "староста"}.get(role, "студент")
+
+
+def _user_card_text(user: dict) -> str:
+    """Текст карточки пользователя из данных БД (плюс живое имя, если есть)."""
+    username = str(user.get("username") or "").strip()
+    first_name = str(user.get("first_name") or "").strip()
+    last_name = str(user.get("last_name") or "").strip()
+    full_name = " ".join(part for part in (first_name, last_name) if part)
+    live_name = str(user.get("_display_name") or "").strip()
+    name = live_name or full_name or (f"@{username}" if username else f"ID {user['user_id']}")
+
+    lines = [f"👤 <b>{esc(name)}</b>"]
+    if username and username.lstrip("@").lower() not in name.lower():
+        lines.append(f"@{esc(username.lstrip('@'))}")
+    lines.append(f"Группа · <b>{esc(str(user.get('group_name') or '—'))}</b>")
+    lines.append(f"Роль · <b>{esc(_role_word(str(user.get('role') or 'student')))}</b>")
+    lines.append(f"ID · <code>{user['user_id']}</code>")
+    return "\n".join(lines)
+
+
+async def _render_search_results(message: Message, state: FSMContext, query: str) -> None:
+    """Показать результаты поиска пользователей."""
+    users = await search_users(query)
+    await state.update_data(_admin_search_query=query)
+
+    if not users:
+        await _edit_admin_body(
+            message,
+            state,
+            titled("Поиск", "Никого не нашёл. Попробуй другой запрос."),
+            _admin_search_prompt_kb(),
+            HTML_PARSE_MODE,
+        )
+        await state.update_data(_admin_screen="search")
+        return
+
+    shown_users = users[:ADMIN_SEARCH_LIMIT]
+    # Подмешиваем живые имена только для показываемых плиток — это дёшево и даёт
+    # понятные подписи даже до того, как профиль сохранится в БД.
+    shown_users = await _attach_display_names(message.bot, shown_users)
+
+    subtitle = f"Найдено: {len(users)}. Выбери пользователя."
+    if len(users) > len(shown_users):
+        subtitle = (
+            f"Найдено: {len(users)}, показаны первые {len(shown_users)}. "
+            "Уточни запрос, чтобы сузить."
+        )
+    await _edit_admin_body(
+        message,
+        state,
+        titled("Поиск", subtitle),
+        admin_search_results_kb(shown_users),
+        HTML_PARSE_MODE,
+    )
+    await state.update_data(_admin_screen="search_results")
+
+
+async def _render_user_card(message: Message, state: FSMContext, user_id: int) -> bool:
+    """Показать карточку пользователя с действиями."""
+    user = await get_user(user_id)
+    if not user:
+        return False
+    live_name = await _display_name(message.bot, user_id)
+    if live_name and not live_name.startswith("ID "):
+        user = {**user, "_display_name": live_name}
+    await _edit_admin_body(
+        message,
+        state,
+        _user_card_text(user),
+        admin_user_card_kb(user),
+        HTML_PARSE_MODE,
+    )
+    await state.update_data(_admin_screen="card", _admin_card_user=user_id)
+    return True
+
+
 async def _render_admin_users(message: Message, state: FSMContext) -> bool:
     """Показать список студентов для назначения старостой."""
     users = await get_all_users()
-    students = [u for u in users if u.get("role", "student") == "student"]
+    students = [u for u in users if (u.get("role") or "student") == "student"]
     if not students:
         return False
     students = await _attach_display_names(message.bot, students)
@@ -242,11 +352,11 @@ async def handle_admin_back(message: Message, state: FSMContext) -> bool:
         return False
 
     screen = data.get("_admin_screen", "menu")
-    if screen == "set":
+    if screen in ("set", "remove", "search", "search_results"):
         await _render_admin_menu(message, state)
         return True
-    if screen == "remove":
-        await _render_admin_menu(message, state)
+    if screen == "card":
+        await _render_search_results(message, state, data.get("_admin_search_query", ""))
         return True
     if screen == "set_done":
         if not await _render_admin_users(message, state):
@@ -258,7 +368,7 @@ async def handle_admin_back(message: Message, state: FSMContext) -> bool:
         return True
 
     user = await get_user(message.from_user.id)
-    role = user.get("role", "student") if user else "student"
+    role = (user.get("role") or "student") if user else "student"
     sent = await message.answer(
         MAIN_MENU_TEXT,
         reply_markup=main_menu_kb(role, not bool(user and user.get("extra_in_schedule"))),
@@ -411,6 +521,71 @@ async def on_admin_menu(message: Message, state: FSMContext) -> None:
     await state.update_data(_nav_stack=["main_menu"])
 
 
+async def _guard_admin(callback: CallbackQuery) -> bool:
+    """Проверить, что вызвавший — админ. Иначе показать алерт."""
+    user = await get_user(callback.from_user.id)
+    if not user or user.get("role") != "admin":
+        await callback.answer("Нет доступа", show_alert=True)
+        return False
+    return True
+
+
+@router.callback_query(F.data == "admin:search")
+async def on_admin_search(callback: CallbackQuery, state: FSMContext) -> None:
+    """Открыть экран поиска пользователя."""
+    if not await _guard_admin(callback):
+        return
+    await callback.message.edit_text(
+        titled("Поиск", "Введи имя, @username, группу или ID. Или покажи всех."),
+        reply_markup=_admin_search_prompt_kb(),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await state.set_state(AdminStates.search_query)
+    await state.update_data(_admin_screen="search")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:search_all")
+async def on_admin_search_all(callback: CallbackQuery, state: FSMContext) -> None:
+    """Показать всех пользователей."""
+    if not await _guard_admin(callback):
+        return
+    await state.set_state(AdminStates.search_query)
+    await _render_search_results(callback.message, state, "")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:search_back")
+async def on_admin_search_back(callback: CallbackQuery, state: FSMContext) -> None:
+    """Вернуться из карточки к результатам поиска."""
+    if not await _guard_admin(callback):
+        return
+    data = await state.get_data()
+    await state.set_state(AdminStates.search_query)
+    await _render_search_results(callback.message, state, data.get("_admin_search_query", ""))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_user:"))
+async def on_admin_user_card(callback: CallbackQuery, state: FSMContext) -> None:
+    """Открыть карточку пользователя."""
+    if not await _guard_admin(callback):
+        return
+    target_id = int(callback.data.split(":")[1])
+    if not await _render_user_card(callback.message, state, target_id):
+        await callback.answer("Пользователь не найден", show_alert=True)
+        return
+    await callback.answer()
+
+
+@router.message(AdminStates.search_query)
+async def on_admin_search_query(message: Message, state: FSMContext) -> None:
+    """Обработать введённый запрос поиска."""
+    query = (message.text or "").strip()
+    await delete_user_message(message)
+    await _render_search_results(message, state, query)
+
+
 @router.callback_query(F.data == "admin:set_starosta")
 async def on_set_starosta(callback: CallbackQuery, state: FSMContext) -> None:
     """Показать список пользователей для назначения старостой."""
@@ -420,7 +595,7 @@ async def on_set_starosta(callback: CallbackQuery, state: FSMContext) -> None:
         return
     users = await get_all_users()
     # Показываем только студентов
-    students = [u for u in users if u.get("role", "student") == "student"]
+    students = [u for u in users if (u.get("role") or "student") == "student"]
     if not students:
         await callback.answer("Нет студентов для назначения", show_alert=True)
         return
@@ -443,6 +618,11 @@ async def on_confirm_set_starosta(callback: CallbackQuery, state: FSMContext) ->
         return
     target_id = int(callback.data.split(":")[1])
     await set_user_role(target_id, "starosta")
+    data = await state.get_data()
+    if data.get("_admin_screen") == "card":
+        await _render_user_card(callback.message, state, target_id)
+        await callback.answer("Назначен старостой")
+        return
     target_name = await _display_name(callback.bot, target_id)
     await callback.message.edit_text(
         titled("Готово", f"{esc(target_name)} · староста"),
@@ -482,6 +662,11 @@ async def on_confirm_remove_starosta(callback: CallbackQuery, state: FSMContext)
         return
     target_id = int(callback.data.split(":")[1])
     await set_user_role(target_id, "student")
+    data = await state.get_data()
+    if data.get("_admin_screen") == "card":
+        await _render_user_card(callback.message, state, target_id)
+        await callback.answer("Снят со старосты")
+        return
     target_name = await _display_name(callback.bot, target_id)
     await callback.message.edit_text(
         titled("Готово", f"{esc(target_name)} · студент"),

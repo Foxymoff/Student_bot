@@ -16,7 +16,9 @@ from aiogram.types import CallbackQuery, Message
 from config import ROOM_SHORT, SUBJECT_SHORT, app_today, is_english_subject
 from database import (
     add_override,
+    add_pending_alert,
     delete_lesson_overrides,
+    delete_pending_alert,
     get_lesson_overrides,
     get_overrides,
     get_user,
@@ -503,7 +505,7 @@ async def _show_starosta_body(
 
 async def _replace_with_main_menu(message: Message, state: FSMContext, user: dict | None) -> None:
     """Вернуться в главное меню."""
-    role = user.get("role", "student") if user else "student"
+    role = (user.get("role") or "student") if user else "student"
     sent = await message.answer(
         MAIN_MENU_TEXT,
         reply_markup=main_menu_kb(role, not bool(user and user.get("extra_in_schedule"))),
@@ -740,13 +742,16 @@ async def _send_change_alerts(
         if not _user_matches_subgroup(user, lesson, subgroup):
             continue
         try:
-            await bot.send_message(
+            sent = await bot.send_message(
                 user["user_id"],
                 text,
                 reply_markup=alert_delete_kb(),
                 parse_mode=HTML_PARSE_MODE,
                 disable_notification=not bool(user.get("change_alert_sound", 1)),
             )
+            # Запоминаем для автоудаления через 24 часа, если пользователь
+            # не уберёт алерт сам.
+            await add_pending_alert(user["user_id"], sent.message_id)
         except Exception as exc:
             logger.warning(
                 "Не удалось отправить алерт пользователю %s: %s", user.get("user_id"), exc
@@ -761,6 +766,7 @@ async def on_alert_delete(callback: CallbackQuery) -> None:
     except Exception:
         await callback.answer("Не получилось · уведомление не удалено", show_alert=True)
         return
+    await delete_pending_alert(callback.from_user.id, callback.message.message_id)
     await callback.answer()
 
 

@@ -71,6 +71,9 @@ async def init_db() -> None:
                 daily_notify_target TEXT DEFAULT 'today',
                 change_alert_enabled INTEGER DEFAULT 0,
                 change_alert_sound INTEGER DEFAULT 1,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
@@ -91,6 +94,9 @@ async def init_db() -> None:
             ("daily_notify_target", "TEXT DEFAULT 'today'"),
             ("change_alert_enabled", "INTEGER DEFAULT 0"),
             ("change_alert_sound", "INTEGER DEFAULT 1"),
+            ("username", "TEXT"),
+            ("first_name", "TEXT"),
+            ("last_name", "TEXT"),
         ]:
             try:
                 await db.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
@@ -132,6 +138,19 @@ async def init_db() -> None:
                 note TEXT
             )
         """)
+        # Отправленные алерты об изменениях — для автоудаления через 24 часа,
+        # если пользователь не убрал их сам.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pending_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pending_alerts_created ON pending_alerts (created_at)"
+        )
         await db.commit()
     logger.info("База данных инициализирована")
 
@@ -306,6 +325,100 @@ async def get_users_by_group(group_name: str) -> list[dict]:
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+
+async def update_user_profile(
+    user_id: int,
+    username: str | None,
+    first_name: str | None,
+    last_name: str | None,
+) -> None:
+    """Сохранить Telegram-профиль пользователя (для поиска в админке).
+
+    Обновляет только уже существующую запись — для незарегистрированных
+    пользователей запрос ничего не делает.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET username = ?, first_name = ?, last_name = ? WHERE user_id = ?",
+            (username, first_name, last_name, user_id),
+        )
+        await db.commit()
+
+
+async def search_users(query: str) -> list[dict]:
+    """Поиск пользователей по имени, @username, группе или ID.
+
+    Пустой запрос возвращает всех. Совпадение — подстрокой, без учёта регистра.
+    Фильтрация в Python, а не в SQL: встроенный SQLite lower() не понижает
+    регистр кириллицы, поэтому поиск по русским именам делаем на стороне кода.
+    """
+    q = query.strip().lstrip("@").lower()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM users ORDER BY group_name, user_id")
+        rows = [dict(r) for r in await cursor.fetchall()]
+
+    if not q:
+        return rows
+
+    result = []
+    for user in rows:
+        haystack = " ".join(
+            str(user.get(field) or "")
+            for field in ("username", "first_name", "last_name", "group_name")
+        ).lower()
+        if q in haystack or (q.isdigit() and q == str(user["user_id"])):
+            result.append(user)
+    return result
+
+
+# ── Алерты об изменениях (автоудаление) ───────────────────
+
+
+async def add_pending_alert(user_id: int, message_id: int) -> None:
+    """Запомнить отправленный алерт для автоудаления через 24 часа."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO pending_alerts (user_id, message_id) VALUES (?, ?)",
+            (user_id, message_id),
+        )
+        await db.commit()
+
+
+async def get_expired_alerts() -> list[dict]:
+    """Алерты старше 24 часов, которые пора удалить."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, user_id, message_id FROM pending_alerts "
+            "WHERE created_at <= datetime('now', '-24 hours')"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def delete_pending_alerts(alert_ids: list[int]) -> None:
+    """Удалить записи об алертах по их id."""
+    if not alert_ids:
+        return
+    placeholders = ",".join("?" * len(alert_ids))
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            f"DELETE FROM pending_alerts WHERE id IN ({placeholders})",
+            tuple(alert_ids),
+        )
+        await db.commit()
+
+
+async def delete_pending_alert(user_id: int, message_id: int) -> None:
+    """Убрать запись об алерте (например, когда пользователь удалил его сам)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM pending_alerts WHERE user_id = ? AND message_id = ?",
+            (user_id, message_id),
+        )
+        await db.commit()
 
 
 # ── Роли ──────────────────────────────────────────────────

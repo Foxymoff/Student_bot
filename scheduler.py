@@ -2,6 +2,7 @@
 Фоновые уведомления: ежедневное расписание.
 """
 
+import asyncio
 import datetime
 import logging
 
@@ -9,7 +10,14 @@ from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import APP_TIMEZONE, app_now, app_today
-from database import get_all_users, get_overrides, mark_user_daily_notify_sent
+from database import (
+    delete_pending_alerts,
+    get_all_users,
+    get_expired_alerts,
+    get_overrides,
+    mark_user_daily_notify_sent,
+    update_user_profile,
+)
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.schedule import (
     _has_added_override,
@@ -95,6 +103,44 @@ async def send_due_daily_schedules(bot: Bot) -> None:
         logger.info("Ежедневное расписание отправлено (%d пользователей)", sent_count)
 
 
+async def cleanup_expired_alerts(bot: Bot) -> None:
+    """Удалить алерты об изменениях, которым больше 24 часов."""
+    alerts = await get_expired_alerts()
+    if not alerts:
+        return
+
+    for alert in alerts:
+        try:
+            await bot.delete_message(alert["user_id"], alert["message_id"])
+        except Exception:
+            pass  # сообщение уже удалено или недоступно
+    await delete_pending_alerts([alert["id"] for alert in alerts])
+    logger.info("Автоудалены устаревшие алерты (%d шт.)", len(alerts))
+
+
+async def warm_profiles(bot: Bot) -> None:
+    """Разово подтянуть имя/@username всех пользователей в БД — для поиска в админке.
+
+    Обрабатываем только тех, у кого профиль ещё пустой, с паузами между
+    запросами, чтобы не упереться в лимиты Telegram. Безопасно запускать
+    повторно: уже заполненные профили пропускаются.
+    """
+    users = await get_all_users()
+    updated = 0
+    for user in users:
+        if user.get("username") or user.get("first_name") or user.get("last_name"):
+            continue
+        try:
+            chat = await bot.get_chat(user["user_id"])
+        except Exception:
+            continue  # пользователь заблокировал бота или недоступен
+        await update_user_profile(user["user_id"], chat.username, chat.first_name, chat.last_name)
+        updated += 1
+        await asyncio.sleep(0.2)
+    if updated:
+        logger.info("Прогрев профилей: обновлено %d", updated)
+
+
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Настроить и вернуть планировщик задач."""
     scheduler = AsyncIOScheduler(timezone=APP_TIMEZONE)
@@ -110,5 +156,18 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    logger.info("Планировщик настроен: проверка ежедневных расписаний каждую минуту")
+    # Автоудаление алертов об изменениях старше 24 часов.
+    scheduler.add_job(
+        cleanup_expired_alerts,
+        trigger="interval",
+        minutes=10,
+        next_run_time=app_now(),
+        args=[bot],
+        id="cleanup_alerts",
+        replace_existing=True,
+    )
+
+    logger.info(
+        "Планировщик настроен: ежедневные расписания (1 мин) + автоудаление алертов (10 мин)"
+    )
     return scheduler

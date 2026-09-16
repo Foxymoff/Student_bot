@@ -233,7 +233,7 @@ async def _finish_registration_from_message(message: Message, state: FSMContext)
 
 async def _replace_with_main_menu(message: Message, state: FSMContext, user: dict | None) -> None:
     """Показать главное меню до удаления старого экрана."""
-    role = user.get("role", "student") if user else "student"
+    role = (user.get("role") or "student") if user else "student"
     sent = await message.answer(
         MAIN_MENU_TEXT,
         reply_markup=main_menu_kb(role, _show_extra_button(user)),
