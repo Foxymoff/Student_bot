@@ -27,7 +27,7 @@ The project also gives group leaders a simple way to publish schedule changes, s
 - View another group's schedule without changing the user profile.
 - Select extra classes and show them separately or inside the main schedule.
 - Rich schedule messages (Telegram Rich HTML): one compact table per day, details and teachers in a collapsible block, a live countdown to the next lesson, and the week as an accordion.
-- Switch to the classic plain-message schedule with `/classic` (compact or column layout).
+- Switch to the classic plain-message schedule with `/classic` or in settings; the classic view has compact and column layouts.
 - Configure personal daily schedule notifications.
 - Receive alerts about schedule changes.
 - Use group leader tools to update lessons quickly.

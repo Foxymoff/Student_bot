@@ -36,7 +36,8 @@ WEEKEND_ONLY_WITH_LESSONS = True
 DETAILS_SUMMARY = "Полные названия и преподаватели"
 TODAY_SUMMARY = "Сегодняшние пары"
 EXTRA_LABEL = "доп"
-ONLINE_ROOM = "онлайн"
+# Онлайн-пара в колонке аудитории — как «ОНЛ» в классическом виде.
+ONLINE_ROOM = "ОНЛ"
 # На сколько дней вперёд искать ближайший учебный день.
 LOOKAHEAD_DAYS = 14
 
@@ -325,7 +326,7 @@ def _online_link(lesson: Lesson) -> str:
         link = f'<a href="{esc(url, quote=True)}">{esc(url)}</a>'
     else:
         link = esc(url)
-    return _wrap("p", f"{hhmm(lesson.start)} · {esc(lesson.short)} · {ONLINE_ROOM}: {link}")
+    return _wrap("p", f"{hhmm(lesson.start)} · {esc(lesson.short)} · онлайн: {link}")
 
 
 def _details(summary: str, body: str, *, is_open: bool = False) -> str:

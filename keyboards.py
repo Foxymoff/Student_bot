@@ -251,9 +251,11 @@ def settings_menu_kb(
     daily_notify_time: str = "08:00",
     change_alert_enabled: bool = False,
     daily_notify_target: str = "today",
+    classic: bool = True,
 ) -> InlineKeyboardMarkup:
     """Главное inline-меню настроек."""
-    view_label = "Компактный" if compact else "Колонки"
+    # Компактный режим и колонки есть только у классического вида.
+    view_label = ("Компактный" if compact else "Колонки") if classic else "Новый"
     extra_label = "в расписании" if extra_in_schedule else "отдельной кнопкой"
     notify_emoji = "🌙" if daily_notify_target == "tomorrow" else "☀️"
     notify_label = f"{notify_emoji} {daily_notify_time}" if daily_notify_enabled else "выкл."
@@ -305,16 +307,29 @@ def profile_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def settings_view_kb(compact: bool) -> InlineKeyboardMarkup:
-    """Настройки компактного/колоночного режима."""
-    toggle_text = "Переключить на колонки" if compact else "Переключить на компактный"
-    toggle_data = "settings:compact:0" if compact else "settings:compact:1"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=toggle_text, callback_data=toggle_data)],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")],
-        ]
-    )
+def settings_view_kb(
+    compact: bool, classic: bool = True, rich_available: bool = True
+) -> InlineKeyboardMarkup:
+    """Вид расписания: новый или классический; компактный режим — только у классического."""
+    rows = []
+    if rich_available:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="Новый" if classic else "✅ Новый", callback_data="settings:classic:0"
+                ),
+                InlineKeyboardButton(
+                    text="✅ Классический" if classic else "Классический",
+                    callback_data="settings:classic:1",
+                ),
+            ]
+        )
+    if classic or not rich_available:
+        toggle_text = "Переключить на колонки" if compact else "Переключить на компактный"
+        toggle_data = "settings:compact:0" if compact else "settings:compact:1"
+        rows.append([InlineKeyboardButton(text=toggle_text, callback_data=toggle_data)])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def settings_extra_display_kb(extra_in_schedule: bool) -> InlineKeyboardMarkup:

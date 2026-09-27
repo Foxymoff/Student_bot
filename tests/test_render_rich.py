@@ -257,8 +257,8 @@ def test_changes_cancel_room_online_note():
     assert '<td><mark>История</mark></td><td align="right">420</td>' in html
     assert '<td align="right" valign="top"><b>420</b></td>' in html
     assert "<br><i>Хайруллина Д.Х.</i><br><i>Тест</i>" in html
-    # Онлайн: в колонке аудитории текст, ссылка — абзацем внутри details.
-    assert '<td>Ин. тех.</td><td align="right">онлайн</td>' in html
+    # Онлайн: в колонке аудитории «ОНЛ», как в классике; ссылка — абзацем внутри details.
+    assert '<td>Ин. тех.</td><td align="right">ОНЛ</td>' in html
     assert (
         '<p>13:30 · Ин. тех. · онлайн: <a href="https://meet.example.com/a?b=1&amp;c=2">'
         "https://meet.example.com/a?b=1&amp;c=2</a></p></details>"

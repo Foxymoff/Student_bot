@@ -52,6 +52,12 @@ FSM_DB_PATH: Path = DB_PATH.parent / "fsm.db"
 # Новый вид расписания (Rich HTML). RICH_SCHEDULE=0 — всем классический вид.
 RICH_SCHEDULE: bool = os.getenv("RICH_SCHEDULE", "1").strip() != "0"
 
+
+def rich_enabled(user: dict | None) -> bool:
+    """Новый вид: включён глобально (RICH_SCHEDULE) и не выключен пользователем (/classic)."""
+    return RICH_SCHEDULE and not (user or {}).get("classic_view")
+
+
 # Часовой пояс для дат расписания и уведомлений
 APP_TIMEZONE = ZoneInfo("Europe/Moscow")
 

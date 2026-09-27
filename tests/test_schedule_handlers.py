@@ -11,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 
+import config
 import scheduler
 from handlers import schedule, start
 from tests.rich_fixtures import GROUP, at, lessons_for
@@ -153,7 +154,7 @@ async def test_send_schedule_classic_for_classic_user():
 
 
 async def test_send_schedule_classic_when_rich_disabled_globally(monkeypatch):
-    monkeypatch.setattr(schedule, "RICH_SCHEDULE", False)
+    monkeypatch.setattr(config, "RICH_SCHEDULE", False)
     bot = _bot()
     rich, classic = _views()
 
@@ -340,3 +341,48 @@ async def test_daily_notify_skips_empty_day(daily):
 
     assert not await scheduler._send_daily_schedule(bot, user, datetime.date(2026, 9, 27))
     bot.send_rich_message.assert_not_awaited()
+
+
+# ── Настройки: вид расписания ─────────────────────────────
+
+
+async def test_settings_toggle_classic(monkeypatch):
+    calls = []
+
+    async def get_user(user_id):
+        return {**USER, "compact_mode": 1}
+
+    async def update_user_classic_view(user_id, classic):
+        calls.append((user_id, classic))
+
+    monkeypatch.setattr(start, "get_user", get_user)
+    monkeypatch.setattr(start, "update_user_classic_view", update_user_classic_view)
+    callback = MagicMock()
+    callback.data = "settings:classic:1"
+    callback.from_user.id = 9
+    callback.answer = AsyncMock()
+    callback.message.edit_text = AsyncMock()
+
+    await start.on_toggle_classic(callback)
+
+    assert calls == [(9, True)]
+    kb = callback.message.edit_text.await_args.kwargs["reply_markup"]
+    assert "settings:compact:0" in {b.callback_data for row in kb.inline_keyboard for b in row}
+    assert "компактный" in callback.message.edit_text.await_args.args[0]
+
+
+async def test_settings_toggle_classic_same_value_only_answers(monkeypatch):
+    async def get_user(user_id):
+        return USER
+
+    monkeypatch.setattr(start, "get_user", get_user)
+    callback = MagicMock()
+    callback.data = "settings:classic:0"
+    callback.from_user.id = 9
+    callback.answer = AsyncMock()
+    callback.message.edit_text = AsyncMock()
+
+    await start.on_toggle_classic(callback)
+
+    callback.answer.assert_awaited_once_with("Уже включён новый вид")
+    callback.message.edit_text.assert_not_awaited()

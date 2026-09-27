@@ -52,3 +52,35 @@ def test_starosta_pair_actions_last_button_label_differs():
     labels_added = [b.text for row in added.inline_keyboard for b in row]
     assert any("Откатить" in t for t in labels_regular)
     assert any("Удалить пару" in t for t in labels_added)
+
+
+from keyboards import settings_menu_kb, settings_view_kb  # noqa: E402
+
+
+def test_settings_view_new_view_hides_compact_toggle():
+    kb = settings_view_kb(compact=True, classic=False)
+
+    assert [b.text for b in kb.inline_keyboard[0]] == ["✅ Новый", "Классический"]
+    assert "settings:compact:0" not in _cb_set(kb)
+    assert "settings:compact:1" not in _cb_set(kb)
+
+
+def test_settings_view_classic_shows_compact_toggle():
+    kb = settings_view_kb(compact=False, classic=True)
+
+    assert [b.text for b in kb.inline_keyboard[0]] == ["Новый", "✅ Классический"]
+    assert "settings:compact:1" in _cb_set(kb)
+
+
+def test_settings_view_without_rich_only_compact_toggle():
+    kb = settings_view_kb(compact=True, classic=False, rich_available=False)
+
+    assert _cb_set(kb) == {"settings:compact:0", "settings:back"}
+
+
+def test_settings_menu_view_label():
+    def label(**kwargs):
+        return settings_menu_kb(True, False, **kwargs).inline_keyboard[0][0].text
+
+    assert label(classic=False) == "📱 Вид расписания: Новый"
+    assert label(classic=True) == "📱 Вид расписания: Компактный"

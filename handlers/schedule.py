@@ -23,13 +23,13 @@ from config import (
     GROUP_FILES,
     GROUPS,
     PAIR_TIMES,
-    RICH_SCHEDULE,
     ROOM_SHORT,
     SUBJECT_FULL,
     SUBJECT_SHORT,
     app_now,
     app_today,
     is_english_subject,
+    rich_enabled,
 )
 from database import get_overrides, get_user
 from extra_schedule import get_extras_for_date, parse_extra_choices
@@ -692,11 +692,6 @@ RichView = Callable[[], Awaitable[str]]
 ClassicView = Callable[[], Awaitable[ClassicMessages]]
 
 LEGACY_BUTTON_TEXT = "Подробности теперь раскрываются прямо в сообщении"
-
-
-def rich_enabled(user: dict | None) -> bool:
-    """Новый вид: включён глобально (RICH_SCHEDULE) и не выключен пользователем (/classic)."""
-    return RICH_SCHEDULE and not (user or {}).get("classic_view")
 
 
 async def get_rich_day(
