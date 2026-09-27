@@ -13,19 +13,25 @@ from pathlib import Path
 import pytest
 
 import extra_schedule
-import render_rich
 from config import APP_TIMEZONE, GROUPS
 from handlers import schedule
 from render_rich import Day, Lesson, plural_pairs, render_day_html, render_week_html
-from tests.rich_fixtures import GROUP, UNITY_EXTRA, at, day, upcoming, week
+from tests.rich_fixtures import (
+    CASES,
+    FRIDAY,
+    GROUP,
+    MONDAY,
+    SUNDAY,
+    UNITY_EXTRA,
+    at,
+    day,
+    day_html,
+    today_html,
+    week,
+)
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 RICH_TEXT_LIMIT = 32768
-
-FRIDAY = datetime.date(2026, 9, 25)
-SATURDAY = datetime.date(2026, 9, 26)
-SUNDAY = datetime.date(2026, 9, 27)
-MONDAY = datetime.date(2026, 9, 21)
 
 
 # ── Инструменты проверки ──────────────────────────────────
@@ -126,70 +132,15 @@ def check_html(html: str) -> str:
 # ── Golden-снапшоты ───────────────────────────────────────
 
 
-def _today(now: datetime.datetime) -> str:
-    """«Сегодня» так же, как собирает бот: с ближайшим днём, если он нужен."""
-    target = day(now.date())
-    nearest = upcoming(now.date()) if render_rich.needs_upcoming(target, now) else None
-    return render_day_html(target, now=now, group=GROUP, upcoming=nearest)
-
-
-def _on(date: datetime.date, now: datetime.datetime, **kwargs) -> str:
-    target = day(date, **kwargs)
-    nearest = upcoming(date) if render_rich.needs_upcoming(target, now) else None
-    return render_day_html(target, now=now, group=GROUP, upcoming=nearest)
-
-
-GOLDEN_CASES = {
-    "day_today_before_first": lambda: _today(at(25, 1, 22)),
-    "day_today_second_pair": lambda: _today(at(25, 11, 30)),
-    "day_today_break": lambda: _today(at(25, 10, 55)),
-    "day_today_after_last": lambda: _today(at(25, 16, 0)),
-    "day_tomorrow": lambda: _on(FRIDAY, at(24, 20, 0)),
-    "day_no_pairs": lambda: _on(SUNDAY, at(26, 18, 0)),
-    "day_one_pair": lambda: _on(SATURDAY, at(25, 20, 0)),
-    "day_with_extra": lambda: _on(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA]),
-    "day_with_changes": lambda: _on(
-        FRIDAY,
-        at(25, 1, 22),
-        overrides=[
-            {"lesson_num": 1, "subgroup": None, "override_type": "cancel"},
-            {"lesson_num": 2, "subgroup": None, "override_type": "room_change", "new_value": "420"},
-            {"lesson_num": 2, "subgroup": None, "override_type": "note", "new_value": "Тест"},
-            {
-                "lesson_num": 3,
-                "subgroup": None,
-                "override_type": "online",
-                "new_value": "https://meet.example.com/a?b=1&c=2",
-            },
-        ],
-    ),
-    "week_this_friday": lambda: render_week_html(
-        week(MONDAY), now=at(25, 1, 22), group=GROUP, which="this"
-    ),
-    "week_this_saturday": lambda: render_week_html(
-        week(MONDAY), now=at(26, 14, 0), group=GROUP, which="this"
-    ),
-    "week_this_sunday": lambda: render_week_html(
-        week(MONDAY), now=at(27, 12, 0), group=GROUP, which="this"
-    ),
-    "week_next": lambda: render_week_html(
-        week(MONDAY), now=at(18, 12, 0), group=GROUP, which="next"
-    ),
-    "week_month_boundary": lambda: render_week_html(
-        week(datetime.date(2026, 9, 28)), now=at(30, 12, 0), group=GROUP, which="this"
-    ),
-}
-
-
-@pytest.mark.parametrize("name", GOLDEN_CASES)
+@pytest.mark.parametrize("name", CASES)
 def test_golden(name):
-    html = GOLDEN_CASES[name]()
+    html = CASES[name]()
     check_html(html)
     assert_golden(name, html)
 
 
 def test_reference_day_matches_spec():
-    html = _today(at(25, 1, 22))
+    html = today_html(at(25, 1, 22))
 
     assert html.startswith(
         "<h3>Пятница, 25 сентября</h3>"
@@ -237,7 +188,7 @@ def test_status_line(now, status):
 
 
 def test_after_last_pair_shows_next_study_day():
-    html = _today(at(25, 15, 0))
+    html = today_html(at(25, 15, 0))
 
     assert "<p>Пары на сегодня закончились.</p>" in html
     assert "<details><summary>Сегодняшние пары</summary><table" in html
@@ -245,9 +196,9 @@ def test_after_last_pair_shows_next_study_day():
     assert "<mark>" not in html
 
 
-def test_nearest_pair_marked_only_today():
-    assert "<mark>История</mark>" in _today(at(25, 10, 55))
-    assert "<mark>" not in _on(FRIDAY, at(24, 20, 0))
+def test_nearest_pair_marked_onlytoday_html():
+    assert "<mark>История</mark>" in today_html(at(25, 10, 55))
+    assert "<mark>" not in day_html(FRIDAY, at(24, 20, 0))
 
 
 def test_empty_day_without_upcoming():
@@ -287,7 +238,7 @@ def test_plural_pairs(n, text):
 
 
 def test_extra_is_italic_marked_and_counted_separately():
-    html = _on(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA])
+    html = day_html(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA])
 
     assert "<p>3 пары + 1 доп, 09:20–18:20 · начало" in html
     assert '<tr><td>16:50</td><td><i>UNITY</i> · доп</td><td align="right">501</td></tr>' in html
@@ -295,7 +246,7 @@ def test_extra_is_italic_marked_and_counted_separately():
 
 
 def test_changes_cancel_room_online_note():
-    html = GOLDEN_CASES["day_with_changes"]()
+    html = CASES["day_with_changes"]()
 
     # Отменённая пара зачёркнута и не входит в счётчик и статус.
     assert html.startswith(
@@ -342,7 +293,7 @@ def test_not_http_online_link_is_plain_text():
 
 def test_all_cancelled_day():
     cancel = [{"lesson_num": n, "subgroup": None, "override_type": "cancel"} for n in range(1, 4)]
-    html = _on(FRIDAY, at(25, 1, 22), overrides=cancel)
+    html = day_html(FRIDAY, at(25, 1, 22), overrides=cancel)
 
     check_html(html)
     assert "<p>Все пары отменены. Ближайшие: суббота, 26 сентября, начало" in html
