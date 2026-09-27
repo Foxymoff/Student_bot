@@ -6,6 +6,7 @@ import datetime
 import html as _html
 import json
 import logging
+import re
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -14,6 +15,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from config import (
+    APP_TIMEZONE,
     DATA_DIR,
     GROUP_FILES,
     GROUPS,
@@ -36,6 +38,7 @@ from keyboards import (
     schedule_period_reply_kb,
 )
 from message_style import HTML_PARSE_MODE, register_required_text, title, titled
+from render_rich import Day, Lesson
 from ui_messages import (
     clear_ui_messages,
     delete_user_message,
@@ -540,6 +543,87 @@ def format_day_detailed(
     result = f"{header}\n<code>{code_content}</code>"
 
     return result
+
+
+# ── Модели для rich-рендера (render_rich.py) ─────────────
+
+_CLOCK_RE = re.compile(r"(\d{1,2}):(\d{2})")
+
+
+def _parse_times(
+    value: object, target_date: datetime.date
+) -> tuple[datetime.datetime | None, datetime.datetime | None]:
+    """«09:20-10:50» → aware-время начала и конца на дату (конца может не быть)."""
+    moments = []
+    for hour, minute in _CLOCK_RE.findall(str(value or ""))[:2]:
+        if int(hour) > 23 or int(minute) > 59:
+            break
+        moments.append(
+            datetime.datetime.combine(
+                target_date, datetime.time(int(hour), int(minute)), tzinfo=APP_TIMEZONE
+            )
+        )
+    start = moments[0] if moments else None
+    end = moments[1] if len(moments) > 1 else None
+    return start, end
+
+
+def _rich_lesson(lesson: dict, target_date: datetime.date) -> Lesson:
+    """Пара после фильтра подгрупп и overrides → строка rich-расписания."""
+    num = lesson.get("num")
+    start, end = _parse_times(lesson.get("time") or PAIR_TIMES.get(num), target_date)
+    subject = str(lesson.get("subject") or "")
+    return Lesson(
+        start=start,
+        end=end,
+        short=_short_name(subject),
+        full=_full_name(subject),
+        room=_short_room(_lesson_room(lesson)),
+        teacher=str(lesson.get("_sg_teacher") or lesson.get("teacher") or ""),
+        num=num if isinstance(num, int) else None,
+        cancelled=bool(lesson.get("_cancelled")),
+        room_changed=bool(lesson.get("_room_changed")),
+        online=bool(lesson.get("_online")),
+        online_url=str(lesson.get("_online_link") or ""),
+        note=str(lesson.get("_note") or ""),
+    )
+
+
+def _rich_extra(extra: dict, target_date: datetime.date) -> Lesson:
+    """Выбранное допзанятие → строка rich-расписания."""
+    subject = str(extra.get("subject") or extra.get("type") or "Доп. занятие")
+    start, end = _parse_times(extra.get("time"), target_date)
+    return Lesson(
+        start=start,
+        end=end,
+        short=_short_name(subject),
+        full=_full_name(subject),
+        room=_short_room(extra.get("room") or ""),
+        teacher=str(extra.get("teacher") or ""),
+        extra=True,
+        note=str(extra.get("note") or ""),
+    )
+
+
+def build_rich_day(
+    lessons: list[dict],
+    target_date: datetime.date,
+    sg_inf: int = 1,
+    sg_eng: int = 1,
+    overrides: list[dict] | None = None,
+    extras: list[dict] | None = None,
+) -> Day:
+    """Собрать день для rich-рендера: та же фильтрация и overrides, что у классики.
+
+    Пустые слоты (окна) не выводим — время начала и так показывает порядок.
+    """
+    filtered = _filter_by_subgroup(lessons, sg_inf, sg_eng)
+    if overrides:
+        filtered = _apply_overrides(filtered, overrides)
+    rows = [_rich_lesson(lesson, target_date) for lesson in filtered]
+    rows += [_rich_extra(extra, target_date) for extra in extras or []]
+    rows.sort(key=lambda row: (row.start is None, row.start.timestamp() if row.start else 0))
+    return Day(date=target_date, lessons=tuple(rows))
 
 
 # ── Публичные функции для scheduler ──────────────────────
