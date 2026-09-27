@@ -96,6 +96,10 @@ class NavButton:
     active: bool = False
 
 
+# Ряды кнопок навигации: каждый ряд — отдельный <tg-button-row> (или абзац).
+NavRows = Sequence[Sequence[NavButton]]
+
+
 # ── Хелперы ───────────────────────────────────────────────
 
 
@@ -375,14 +379,16 @@ def _button(button: NavButton, idle_style: str | None) -> str:
     return f'<tg-button type="callback_data"{style_attr} data="{data}">{text}</tg-button>'
 
 
-def nav_html(buttons: Sequence[NavButton]) -> str:
-    """Кнопки навигации в теле сообщения (см. NAV_LAYOUT); пусто, если кнопок нет."""
-    if not buttons:
-        return ""
+def _nav_row(buttons: Sequence[NavButton]) -> str:
     if NAV_LAYOUT == "inline":
         return _wrap("p", " · ".join(_button(button, NAV_INLINE_STYLE) for button in buttons))
     items = "".join(_button(button, None) for button in buttons)
     return f'<tg-button-row align="{NAV_ALIGN}">{items}</tg-button-row>'
+
+
+def nav_html(rows: NavRows) -> str:
+    """Кнопки навигации в теле сообщения (см. NAV_LAYOUT); пусто, если кнопок нет."""
+    return "".join(_nav_row(row) for row in rows if row)
 
 
 # ── День ──────────────────────────────────────────────────
@@ -449,7 +455,7 @@ def render_day_html(
     updated_at: datetime.datetime | None = None,
     upcoming: Day | None = None,
     lead: str | None = None,
-    nav: Sequence[NavButton] = (),
+    nav: NavRows = (),
 ) -> str:
     """Расписание на день.
 
@@ -505,7 +511,7 @@ def render_week_html(
     group: str,
     updated_at: datetime.datetime | None = None,
     which: WeekKind = "this",
-    nav: Sequence[NavButton] = (),
+    nav: NavRows = (),
 ) -> str:
     """Неделя аккордеоном: день — свёрнутый или раскрытый details.
 

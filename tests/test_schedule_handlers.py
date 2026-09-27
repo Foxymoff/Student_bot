@@ -204,6 +204,9 @@ async def test_today_button_sends_one_rich_message(state, monkeypatch, fixed_dat
         "Сегодня</tg-button>"
         '<tg-button type="callback_data" data="rs:d:2026-09-26:ИСП-25-2">Сб, 26 ›</tg-button>'
         "</tg-button-row>"
+        '<tg-button-row align="center">'
+        '<tg-button type="callback_data" data="rs:w:2026-09-21:ИСП-25-2">Вся неделя</tg-button>'
+        "</tg-button-row>"
     )
     data = await state.get_data()
     assert data["ui_msg_ids"] == [77, 101]
@@ -417,22 +420,32 @@ def test_parse_nav_data_rejects_garbage(data):
     assert schedule.parse_nav_data(data) is None
 
 
+def _flat(rows):
+    return [(b.text, b.active) for row in rows for b in row]
+
+
 def test_day_and_week_nav():
     day = schedule.day_nav(datetime.date(2026, 9, 27), GROUP, FRIDAY)
     week = schedule.week_nav(datetime.date(2026, 9, 21), GROUP, FRIDAY)
+    next_week = schedule.week_nav(datetime.date(2026, 9, 28), GROUP, FRIDAY)
 
-    assert [(b.text, b.active) for b in day] == [
+    assert _flat(day) == [
         ("‹ Сб, 26", False),
         ("Сегодня", False),
         ("Пн, 28 ›", False),
+        ("Вся неделя", False),
     ]
-    assert day[1].data == "rs:d:2026-09-25:ИСП-25-2"
-    assert [(b.text, b.active) for b in week] == [
+    assert day[0][1].data == "rs:d:2026-09-25:ИСП-25-2"
+    assert day[1][0].data == "rs:w:2026-09-21:ИСП-25-2"  # неделя показанного дня
+    assert _flat(week) == [
         ("‹ Пред.", False),
         ("Эта неделя", True),
         ("След. ›", False),
+        ("К дню", False),
     ]
-    assert week[2].data == "rs:w:2026-09-28:ИСП-25-2"
+    assert week[0][2].data == "rs:w:2026-09-28:ИСП-25-2"
+    assert week[1][0].data == "rs:d:2026-09-25:ИСП-25-2"  # эта неделя → сегодня
+    assert next_week[1][0].data == "rs:d:2026-09-28:ИСП-25-2"  # другая → её понедельник
 
 
 def test_extras_only_for_own_group():
@@ -447,11 +460,10 @@ def test_nav_as_keyboard_when_not_in_body(monkeypatch, fixed_data):
 
     views = schedule.day_views(USER, GROUP, FRIDAY)
 
-    buttons = views.markup.inline_keyboard[0]
-    assert [(b.text, b.style) for b in buttons] == [
-        ("‹ Чт, 24", None),
-        ("Сегодня", "primary"),
-        ("Сб, 26 ›", None),
+    rows = views.markup.inline_keyboard
+    assert [[(b.text, b.style) for b in row] for row in rows] == [
+        [("‹ Чт, 24", None), ("Сегодня", "primary"), ("Сб, 26 ›", None)],
+        [("Вся неделя", None)],
     ]
 
 
@@ -558,4 +570,75 @@ async def test_daily_notify_rich_has_nav(daily):
     await scheduler._send_daily_schedule(bot, USER, FRIDAY)
 
     html = bot.send_rich_message.await_args.kwargs["rich_message"].html
-    assert html.endswith("Сб, 26 ›</tg-button></tg-button-row>")
+    assert "Сб, 26 ›</tg-button></tg-button-row>" in html
+    assert html.endswith("Вся неделя</tg-button></tg-button-row>")
+
+
+# ── Вход в расписание: сразу сегодняшний день ────────────
+
+
+def _menu_message() -> MagicMock:
+    message = _message()
+    message.bot = _bot()
+    message.answer = AsyncMock(return_value=MagicMock(message_id=60))
+    return message
+
+
+async def test_schedule_menu_opens_today_for_rich_user(state, fixed_data, rich_user):
+    message = _menu_message()
+
+    await schedule.on_schedule_menu(message, state)
+
+    header_text = message.answer.await_args.args[0]
+    assert header_text == "<b>Сегодня</b>"
+    assert message.answer.await_args.kwargs["reply_markup"] == schedule.back_kb()
+    html = message.bot.send_rich_message.await_args.kwargs["rich_message"].html
+    assert html.startswith("<h3>Пятница, 25 сентября</h3>")
+    data = await state.get_data()
+    assert data["ui_msg_ids"] == [60, 101]
+    assert (data["last_bot_msg"], data["last_schedule_msg"]) == (60, 101)
+    assert data["_nav_stack"] == ["main_menu"]
+    assert await state.get_state() == schedule.ScheduleNav.period.state
+
+
+async def test_schedule_menu_keeps_period_keyboard_for_classic(state, monkeypatch, fixed_data):
+    async def get_user(user_id):
+        return {**USER, "classic_view": 1}
+
+    monkeypatch.setattr(schedule, "get_user", get_user)
+    message = _menu_message()
+
+    await schedule.on_schedule_menu(message, state)
+
+    assert message.answer.await_args.kwargs["reply_markup"] == schedule.schedule_period_reply_kb()
+    message.bot.send_rich_message.assert_not_awaited()
+    message.bot.send_message.assert_not_awaited()
+
+
+async def test_other_group_opens_today_without_extras(state, monkeypatch, fixed_data):
+    user = {**USER, "extra_in_schedule": 1, "extra_choices": '["x"]'}
+    seen = []
+
+    async def get_user(user_id):
+        return user
+
+    def get_extras_for_date(group_name, date, keys):
+        seen.append(keys)
+        return []
+
+    monkeypatch.setattr(schedule, "get_user", get_user)
+    monkeypatch.setattr(schedule, "get_extras_for_date", get_extras_for_date)
+    callback = _callback("other_group:МР-25")
+    callback.message.answer = AsyncMock(return_value=MagicMock(message_id=60))
+    callback.message.bot = callback.bot
+
+    await schedule.on_other_group_selected(callback, state)
+
+    assert callback.message.answer.await_args.args[0] == "<b>МР-25</b>\n\nСегодня"
+    html = callback.bot.send_rich_message.await_args.kwargs["rich_message"].html
+    assert "<footer>МР-25</footer>" in html
+    assert 'data="rs:w:2026-09-21:МР-25">Вся неделя' in html
+    assert seen and all(keys == [] for keys in seen)  # чужая группа — без допов
+    data = await state.get_data()
+    assert (data["schedule_context"], data["schedule_group_name"]) == ("other", "МР-25")
+    assert data["_nav_stack"] == ["other_group_select"]

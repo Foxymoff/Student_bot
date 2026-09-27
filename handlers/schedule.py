@@ -7,7 +7,7 @@ import html as _html
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from aiogram import Bot, F, Router
@@ -50,6 +50,7 @@ from render_rich import (
     Day,
     Lesson,
     NavButton,
+    NavRows,
     WeekKind,
     has_lessons,
     needs_upcoming,
@@ -736,7 +737,7 @@ async def render_rich_day(
     extra_choices: list[str] | None = None,
     *,
     lead: str | None = None,
-    nav: Sequence[NavButton] = (),
+    nav: NavRows = (),
 ) -> str:
     """Rich HTML на день; ближайший учебный день ищем, только если он нужен."""
     now = app_now()
@@ -754,7 +755,7 @@ async def render_rich_week(
     sg_eng: int,
     extra_choices: list[str] | None,
     which: WeekKind,
-    nav: Sequence[NavButton] = (),
+    nav: NavRows = (),
 ) -> str:
     """Rich HTML на неделю с понедельника."""
     days = [
@@ -869,14 +870,19 @@ def _nav_day_label(target_date: datetime.date) -> str:
     return f"{WEEKDAY_ABBR[target_date.weekday()]}, {target_date.day}"
 
 
-def day_nav(target_date: datetime.date, group_name: str, today: datetime.date) -> list[NavButton]:
-    """‹ вчера | Сегодня | завтра › относительно показанного дня."""
+def day_nav(
+    target_date: datetime.date, group_name: str, today: datetime.date
+) -> list[list[NavButton]]:
+    """‹ вчера | Сегодня | завтра ›, ниже — «Вся неделя» (неделя показанного дня)."""
     prev_day = target_date - datetime.timedelta(days=1)
     next_day = target_date + datetime.timedelta(days=1)
     return [
-        NavButton(f"‹ {_nav_day_label(prev_day)}", nav_data(NAV_DAY, prev_day, group_name)),
-        NavButton("Сегодня", nav_data(NAV_DAY, today, group_name), active=target_date == today),
-        NavButton(f"{_nav_day_label(next_day)} ›", nav_data(NAV_DAY, next_day, group_name)),
+        [
+            NavButton(f"‹ {_nav_day_label(prev_day)}", nav_data(NAV_DAY, prev_day, group_name)),
+            NavButton("Сегодня", nav_data(NAV_DAY, today, group_name), active=target_date == today),
+            NavButton(f"{_nav_day_label(next_day)} ›", nav_data(NAV_DAY, next_day, group_name)),
+        ],
+        [NavButton("Вся неделя", nav_data(NAV_WEEK, _monday(target_date), group_name))],
     ]
 
 
@@ -884,16 +890,22 @@ def _monday(target_date: datetime.date) -> datetime.date:
     return target_date - datetime.timedelta(days=target_date.weekday())
 
 
-def week_nav(monday: datetime.date, group_name: str, today: datetime.date) -> list[NavButton]:
-    """‹ Пред. | Эта неделя | След. › относительно показанной недели."""
+def week_nav(monday: datetime.date, group_name: str, today: datetime.date) -> list[list[NavButton]]:
+    """‹ Пред. | Эта неделя | След. ›, ниже — «К дню» (сегодня или понедельник недели)."""
     this_monday = _monday(today)
     week = datetime.timedelta(weeks=1)
+    day = today if monday == this_monday else monday
     return [
-        NavButton("‹ Пред.", nav_data(NAV_WEEK, monday - week, group_name)),
-        NavButton(
-            "Эта неделя", nav_data(NAV_WEEK, this_monday, group_name), active=monday == this_monday
-        ),
-        NavButton("След. ›", nav_data(NAV_WEEK, monday + week, group_name)),
+        [
+            NavButton("‹ Пред.", nav_data(NAV_WEEK, monday - week, group_name)),
+            NavButton(
+                "Эта неделя",
+                nav_data(NAV_WEEK, this_monday, group_name),
+                active=monday == this_monday,
+            ),
+            NavButton("След. ›", nav_data(NAV_WEEK, monday + week, group_name)),
+        ],
+        [NavButton("К дню", nav_data(NAV_DAY, day, group_name))],
     ]
 
 
@@ -913,11 +925,11 @@ class ScheduleViews:
     markup: InlineKeyboardMarkup | None = None  # навигация клавиатурой (NAV_IN_BODY=False)
 
 
-def _nav_parts(buttons: list[NavButton]) -> tuple[list[NavButton], InlineKeyboardMarkup | None]:
+def _nav_parts(rows: NavRows) -> tuple[NavRows, InlineKeyboardMarkup | None]:
     """Кнопки в тело сообщения или в inline-клавиатуру — по NAV_IN_BODY."""
     if NAV_IN_BODY:
-        return buttons, None
-    return [], schedule_nav_kb(buttons)
+        return rows, None
+    return [], schedule_nav_kb(rows)
 
 
 def _viewer(user: dict, group_name: str) -> tuple[int, int, bool, list[str]]:
@@ -1057,6 +1069,32 @@ async def _send_screen(
     )
 
 
+async def _open_live_schedule(
+    message: Message, state: FSMContext, user: dict, group_name: str, *, other: bool = False
+) -> None:
+    """Новый вид: сразу сегодняшний день живым сообщением, внизу только «⬅️ Назад».
+
+    Периоды переключаются кнопками в самом сообщении; клавиатура выбора периода
+    нужна только классическому виду.
+    """
+    context = {"schedule_context": "other", "schedule_group_name": group_name} if other else {}
+    header = await message.answer(
+        _period_header("Сегодня:", context), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
+    )
+    views = day_views(user, group_name, app_today())
+    sent = await _send_views(message.bot, message.chat.id, user, views)
+    await replace_ui_messages(
+        message.bot,
+        message.chat.id,
+        state,
+        [header.message_id, *(msg.message_id for msg in sent)],
+        screen="schedule",
+        clear_state=True,
+        last_bot_msg=header.message_id,
+        last_schedule_msg=sent[-1].message_id if sent else None,
+    )
+
+
 async def show_other_group_select(message: Message, state: FSMContext) -> None:
     """Показать выбор другой группы с reply-кнопкой Назад."""
     user = await get_user(message.from_user.id)
@@ -1136,22 +1174,25 @@ async def on_other_group_selected(callback: CallbackQuery, state: FSMContext) ->
         await callback.answer("Выбери другую группу.", show_alert=True)
         return
 
-    sent = await callback.message.answer(
-        titled(str(group_name), "Выбери период."),
-        reply_markup=schedule_period_reply_kb(),
-        parse_mode=HTML_PARSE_MODE,
-    )
     await callback.answer()
-    await replace_ui_messages(
-        callback.bot,
-        callback.message.chat.id,
-        state,
-        [sent.message_id],
-        screen="schedule_period",
-        clear_state=True,
-        last_bot_msg=sent.message_id,
-        last_schedule_msg=None,
-    )
+    if rich_enabled(user):
+        await _open_live_schedule(callback.message, state, user, group_name, other=True)
+    else:
+        sent = await callback.message.answer(
+            titled(str(group_name), "Выбери период."),
+            reply_markup=schedule_period_reply_kb(),
+            parse_mode=HTML_PARSE_MODE,
+        )
+        await replace_ui_messages(
+            callback.bot,
+            callback.message.chat.id,
+            state,
+            [sent.message_id],
+            screen="schedule_period",
+            clear_state=True,
+            last_bot_msg=sent.message_id,
+            last_schedule_msg=None,
+        )
     await push_nav(state, "other_group_select")
     await state.set_state(ScheduleNav.period)
     await state.update_data(
@@ -1168,21 +1209,24 @@ async def on_schedule_menu(message: Message, state: FSMContext) -> None:
         await message.answer(register_required_text(), parse_mode=HTML_PARSE_MODE)
         return
     await delete_user_message(message)
-    sent = await message.answer(
-        titled("Расписание", "Выбери период."),
-        reply_markup=schedule_period_reply_kb(),
-        parse_mode=HTML_PARSE_MODE,
-    )
-    await replace_ui_messages(
-        message.bot,
-        message.chat.id,
-        state,
-        [sent.message_id],
-        screen="schedule_period",
-        clear_state=True,
-        last_bot_msg=sent.message_id,
-        last_schedule_msg=None,
-    )
+    if rich_enabled(user):
+        await _open_live_schedule(message, state, user, user["group_name"])
+    else:
+        sent = await message.answer(
+            titled("Расписание", "Выбери период."),
+            reply_markup=schedule_period_reply_kb(),
+            parse_mode=HTML_PARSE_MODE,
+        )
+        await replace_ui_messages(
+            message.bot,
+            message.chat.id,
+            state,
+            [sent.message_id],
+            screen="schedule_period",
+            clear_state=True,
+            last_bot_msg=sent.message_id,
+            last_schedule_msg=None,
+        )
     await push_nav(state, "main_menu")
     await state.set_state(ScheduleNav.period)
 

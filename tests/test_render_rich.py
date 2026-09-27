@@ -441,7 +441,9 @@ def test_all_real_schedules_render_valid_html():
 
 
 def test_nav_row_styles_and_escaping():
-    html = nav_html([NavButton("‹ <вчера>", 'rs:"x"&y'), NavButton("Сегодня", "rs:t", active=True)])
+    html = nav_html(
+        [[NavButton("‹ <вчера>", 'rs:"x"&y'), NavButton("Сегодня", "rs:t", active=True)]]
+    )
 
     # В ряду style="link" сервер отбрасывает — обычные кнопки без стиля.
     assert html == (
@@ -450,13 +452,20 @@ def test_nav_row_styles_and_escaping():
         '<tg-button type="callback_data" style="primary" data="rs:t">Сегодня</tg-button>'
         "</tg-button-row>"
     )
-    assert nav_html([]) == ""
+    assert nav_html([]) == nav_html([[]]) == ""
+
+
+def test_nav_rows_become_separate_button_rows():
+    html = nav_html([[NavButton("a", "rs:a")], [NavButton("b", "rs:b")]])
+
+    assert html.count("<tg-button-row") == 2
+    check_html(html)
 
 
 def test_nav_inline_layout(monkeypatch):
     monkeypatch.setattr(render_rich, "NAV_LAYOUT", "inline")
 
-    html = nav_html([NavButton("‹ Чт, 24", "rs:a"), NavButton("Сегодня", "rs:b", active=True)])
+    html = nav_html([[NavButton("‹ Чт, 24", "rs:a"), NavButton("Сегодня", "rs:b", active=True)]])
 
     assert html == (
         '<p><tg-button type="callback_data" style="link" data="rs:a">‹ Чт, 24</tg-button> · '
@@ -466,7 +475,7 @@ def test_nav_inline_layout(monkeypatch):
 
 
 def test_nav_goes_last_in_day_and_week():
-    buttons = [NavButton("Сегодня", "rs:t", active=True)]
+    buttons = [[NavButton("Сегодня", "rs:t", active=True)], [NavButton("Вся неделя", "rs:w")]]
     day_page = render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons)
     week_page = render_week_html(week(MONDAY), now=at(25, 1, 22), group=GROUP, nav=buttons)
 
