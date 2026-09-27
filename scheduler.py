@@ -20,12 +20,15 @@ from database import (
 )
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.schedule import (
+    ClassicMessages,
     _has_added_override,
     get_lessons_for_date,
     get_schedule_for_date_short,
+    render_rich_day,
+    send_schedule,
 )
 from keyboards import schedule_detail_kb
-from message_style import HTML_PARSE_MODE, title
+from message_style import title
 
 logger = logging.getLogger(__name__)
 
@@ -48,52 +51,8 @@ async def send_due_daily_schedules(bot: Bot) -> None:
             continue
 
         try:
-            # Режим: расписание на сегодня (утро) или на завтра (вечер).
-            target = str(user.get("daily_notify_target") or "today")
-            if target == "tomorrow":
-                target_date = today + datetime.timedelta(days=1)
-                header = f"🌙 {title('Расписание на завтра')}"
-            else:
-                target_date = today
-                header = f"☀️ {title('Расписание на сегодня')}"
-
-            sg_inf = user.get("subgroup_cs", 1) or 1
-            sg_eng = user.get("subgroup_en", 1) or 1
-            compact = bool(user.get("compact_mode"))
-            extra_keys = (
-                parse_extra_choices(user.get("extra_choices"))
-                if user.get("extra_in_schedule")
-                else []
-            )
-
-            # Пустой день (нет ни пар, ни выбранных кружков, ни добавленных старостой
-            # пар) не отправляем — без лишнего шума.
-            lessons = get_lessons_for_date(user["group_name"], target_date)
-            extras = get_extras_for_date(user["group_name"], target_date, extra_keys)
-            if not lessons and not extras:
-                overrides = await get_overrides(user["group_name"], target_date.isoformat())
-                if not _has_added_override(overrides):
-                    continue
-
-            text = await get_schedule_for_date_short(
-                user["group_name"], target_date, sg_inf, sg_eng, compact, extra_keys
-            )
-            # Удаляем неактуальное ежедневное расписание за прошлый раз, если оно ещё висит.
-            prev_msg_id = user.get("daily_notify_last_msg_id")
-            if prev_msg_id:
-                try:
-                    await bot.delete_message(user["user_id"], prev_msg_id)
-                except Exception:
-                    pass  # сообщение уже удалено или недоступно
-            sent = await bot.send_message(
-                chat_id=user["user_id"],
-                text=f"{header}\n\n{text}",
-                reply_markup=schedule_detail_kb(target_date.isoformat()),
-                parse_mode=HTML_PARSE_MODE,
-                disable_notification=not bool(user.get("daily_notify_sound", 1)),
-            )
-            await mark_user_daily_notify_sent(user["user_id"], today_iso, sent.message_id)
-            sent_count += 1
+            if await _send_daily_schedule(bot, user, today):
+                sent_count += 1
         except Exception as e:
             logger.warning(
                 "Не удалось отправить расписание пользователю %s: %s", user["user_id"], e
@@ -101,6 +60,65 @@ async def send_due_daily_schedules(bot: Bot) -> None:
 
     if sent_count:
         logger.info("Ежедневное расписание отправлено (%d пользователей)", sent_count)
+
+
+async def _send_daily_schedule(bot: Bot, user: dict, today: datetime.date) -> bool:
+    """Отправить расписание одному пользователю; False — день пустой, не шлём."""
+    # Режим: расписание на сегодня (утро) или на завтра (вечер).
+    target = str(user.get("daily_notify_target") or "today")
+    if target == "tomorrow":
+        target_date = today + datetime.timedelta(days=1)
+        lead = "Расписание на завтра"
+        header = f"🌙 {title(lead)}"
+    else:
+        target_date = today
+        lead = "Расписание на сегодня"
+        header = f"☀️ {title(lead)}"
+
+    group_name = user["group_name"]
+    sg_inf = user.get("subgroup_cs", 1) or 1
+    sg_eng = user.get("subgroup_en", 1) or 1
+    compact = bool(user.get("compact_mode"))
+    extra_keys = (
+        parse_extra_choices(user.get("extra_choices")) if user.get("extra_in_schedule") else []
+    )
+
+    # Пустой день (нет ни пар, ни выбранных кружков, ни добавленных старостой
+    # пар) не отправляем — без лишнего шума.
+    lessons = get_lessons_for_date(group_name, target_date)
+    extras = get_extras_for_date(group_name, target_date, extra_keys)
+    if not lessons and not extras:
+        overrides = await get_overrides(group_name, target_date.isoformat())
+        if not _has_added_override(overrides):
+            return False
+
+    async def rich() -> str:
+        # Подпись сверху — чтобы было понятно, что это автоотправка, а не ответ на кнопку.
+        return await render_rich_day(group_name, target_date, sg_inf, sg_eng, extra_keys, lead=lead)
+
+    async def classic() -> ClassicMessages:
+        text = await get_schedule_for_date_short(
+            group_name, target_date, sg_inf, sg_eng, compact, extra_keys
+        )
+        return [(f"{header}\n\n{text}", schedule_detail_kb(target_date.isoformat()))]
+
+    # Удаляем неактуальное ежедневное расписание за прошлый раз, если оно ещё висит.
+    prev_msg_id = user.get("daily_notify_last_msg_id")
+    if prev_msg_id:
+        try:
+            await bot.delete_message(user["user_id"], prev_msg_id)
+        except Exception:
+            pass  # сообщение уже удалено или недоступно
+    sent = await send_schedule(
+        bot,
+        user["user_id"],
+        user,
+        rich=rich,
+        classic=classic,
+        disable_notification=not bool(user.get("daily_notify_sound", 1)),
+    )
+    await mark_user_daily_notify_sent(user["user_id"], today.isoformat(), sent[-1].message_id)
+    return True
 
 
 async def cleanup_expired_alerts(bot: Bot) -> None:

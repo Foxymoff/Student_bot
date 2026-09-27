@@ -7,12 +7,15 @@ import html as _html
 import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
+from typing import Literal
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InputRichMessage, Message
 
 from config import (
     APP_TIMEZONE,
@@ -20,9 +23,11 @@ from config import (
     GROUP_FILES,
     GROUPS,
     PAIR_TIMES,
+    RICH_SCHEDULE,
     ROOM_SHORT,
     SUBJECT_FULL,
     SUBJECT_SHORT,
+    app_now,
     app_today,
     is_english_subject,
 )
@@ -38,8 +43,17 @@ from keyboards import (
     schedule_period_reply_kb,
 )
 from message_style import HTML_PARSE_MODE, register_required_text, title, titled
-from render_rich import Day, Lesson
+from render_rich import (
+    LOOKAHEAD_DAYS,
+    Day,
+    Lesson,
+    has_lessons,
+    needs_upcoming,
+    render_day_html,
+    render_week_html,
+)
 from ui_messages import (
+    add_ui_messages,
     clear_ui_messages,
     delete_user_message,
     register_ui_messages,
@@ -671,6 +685,152 @@ async def get_schedule_for_date_detailed(
     return format_day_detailed(lessons, target_date, sg_inf, sg_eng, overrides, extras)
 
 
+# ── Отправка: новый (rich) или классический вид ──────────
+
+ClassicMessages = list[tuple[str, InlineKeyboardMarkup | None]]
+RichView = Callable[[], Awaitable[str]]
+ClassicView = Callable[[], Awaitable[ClassicMessages]]
+
+LEGACY_BUTTON_TEXT = "Подробности теперь раскрываются прямо в сообщении"
+
+
+def rich_enabled(user: dict | None) -> bool:
+    """Новый вид: включён глобально (RICH_SCHEDULE) и не выключен пользователем (/classic)."""
+    return RICH_SCHEDULE and not (user or {}).get("classic_view")
+
+
+async def get_rich_day(
+    group_name: str,
+    target_date: datetime.date,
+    sg_inf: int = 1,
+    sg_eng: int = 1,
+    extra_choices: list[str] | None = None,
+) -> Day:
+    """День для rich-рендера (с overrides и выбранными допами)."""
+    lessons = get_lessons_for_date(group_name, target_date)
+    overrides = await get_overrides(group_name, target_date.isoformat())
+    extras = get_extras_for_date(group_name, target_date, extra_choices or [])
+    return build_rich_day(lessons, target_date, sg_inf, sg_eng, overrides, extras)
+
+
+async def find_upcoming_day(
+    group_name: str,
+    after: datetime.date,
+    sg_inf: int = 1,
+    sg_eng: int = 1,
+    extra_choices: list[str] | None = None,
+) -> Day | None:
+    """Ближайший учебный день после даты (не дальше LOOKAHEAD_DAYS)."""
+    for offset in range(1, LOOKAHEAD_DAYS + 1):
+        target_date = after + datetime.timedelta(days=offset)
+        day = await get_rich_day(group_name, target_date, sg_inf, sg_eng, extra_choices)
+        if has_lessons(day):
+            return day
+    return None
+
+
+async def render_rich_day(
+    group_name: str,
+    target_date: datetime.date,
+    sg_inf: int = 1,
+    sg_eng: int = 1,
+    extra_choices: list[str] | None = None,
+    *,
+    lead: str | None = None,
+) -> str:
+    """Rich HTML на день; ближайший учебный день ищем, только если он нужен."""
+    now = app_now()
+    day = await get_rich_day(group_name, target_date, sg_inf, sg_eng, extra_choices)
+    upcoming = None
+    if needs_upcoming(day, now):
+        upcoming = await find_upcoming_day(group_name, target_date, sg_inf, sg_eng, extra_choices)
+    return render_day_html(day, now=now, group=group_name, upcoming=upcoming, lead=lead)
+
+
+async def render_rich_week(
+    group_name: str,
+    monday: datetime.date,
+    sg_inf: int,
+    sg_eng: int,
+    extra_choices: list[str] | None,
+    which: Literal["this", "next"],
+) -> str:
+    """Rich HTML на неделю с понедельника."""
+    days = [
+        await get_rich_day(
+            group_name, monday + datetime.timedelta(days=i), sg_inf, sg_eng, extra_choices
+        )
+        for i in range(7)
+    ]
+    return render_week_html(days, now=app_now(), group=group_name, which=which)
+
+
+async def classic_week_messages(
+    group_name: str,
+    monday: datetime.date,
+    sg_inf: int,
+    sg_eng: int,
+    compact: bool,
+    extra_choices: list[str] | None,
+) -> ClassicMessages:
+    """Классическая неделя: дни через пустую строку, при превышении лимита — частями."""
+    today = app_today()
+    parts = []
+    for i in range(7):
+        d = monday + datetime.timedelta(days=i)
+        text = await get_schedule_for_date_short(
+            group_name, d, sg_inf, sg_eng, compact, extra_choices
+        )
+        if d == today:
+            text = text.replace("</b>", "  ⬅️</b>", 1)
+        parts.append(text)
+
+    full_text = "\n\n".join(parts)
+    chunks = _split_text(full_text, 4000) if len(full_text) > 4000 else [full_text]
+    return [(chunk, None) for chunk in chunks]
+
+
+async def send_schedule(
+    bot: Bot,
+    chat_id: int,
+    user: dict | None,
+    *,
+    rich: RichView,
+    classic: ClassicView,
+    disable_notification: bool | None = None,
+) -> list[Message]:
+    """Отправить расписание в новом виде, а если он выключен или отклонён — в классическом.
+
+    Откатываемся только на TelegramBadRequest (сервер не принял разметку); сетевые
+    и прочие ошибки пробрасываем.
+    """
+    if rich_enabled(user):
+        html = await rich()
+        try:
+            sent = await bot.send_rich_message(
+                chat_id=chat_id,
+                rich_message=InputRichMessage(html=html, skip_entity_detection=True),
+                disable_notification=disable_notification,
+            )
+            return [sent]
+        except TelegramBadRequest as exc:
+            logger.error(
+                "sendRichMessage отклонён (%s), отправляю классический вид. HTML: %s",
+                exc,
+                html[:500],
+            )
+    return [
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=markup,
+            parse_mode=HTML_PARSE_MODE,
+            disable_notification=disable_notification,
+        )
+        for text, markup in await classic()
+    ]
+
+
 # ── Вспомогательная навигация ────────────────────────────
 
 
@@ -708,18 +868,66 @@ async def _update_period_header(message: Message, state: FSMContext, label: str)
             pass
 
 
-async def _send_schedule(message: Message, state: FSMContext, text: str, date_iso: str) -> None:
+def _subgroups(user: dict) -> tuple[int, int]:
+    """Подгруппы пользователя: информатика, английский."""
+    return user.get("subgroup_cs", 1) or 1, user.get("subgroup_en", 1) or 1
+
+
+def _day_views(user: dict, data: dict, target_date: datetime.date) -> tuple[RichView, ClassicView]:
+    """Расписание на день в обоих видах (считается только тот, что отправится)."""
+    group_name = _schedule_group_name(user, data)
+    sg_inf, sg_eng = _subgroups(user)
+    compact = bool(user.get("compact_mode"))
+    extra_keys = _schedule_extra_keys(user, data)
+
+    async def rich() -> str:
+        return await render_rich_day(group_name, target_date, sg_inf, sg_eng, extra_keys)
+
+    async def classic() -> ClassicMessages:
+        text = await get_schedule_for_date_short(
+            group_name, target_date, sg_inf, sg_eng, compact, extra_keys
+        )
+        return [(text, schedule_detail_kb(target_date.isoformat()))]
+
+    return rich, classic
+
+
+def _week_views(
+    user: dict, data: dict, monday: datetime.date, which: Literal["this", "next"]
+) -> tuple[RichView, ClassicView]:
+    """Расписание на неделю в обоих видах."""
+    group_name = _schedule_group_name(user, data)
+    sg_inf, sg_eng = _subgroups(user)
+    compact = bool(user.get("compact_mode"))
+    extra_keys = _schedule_extra_keys(user, data)
+
+    async def rich() -> str:
+        return await render_rich_week(group_name, monday, sg_inf, sg_eng, extra_keys, which)
+
+    async def classic() -> ClassicMessages:
+        return await classic_week_messages(group_name, monday, sg_inf, sg_eng, compact, extra_keys)
+
+    return rich, classic
+
+
+async def _send_screen(
+    message: Message,
+    state: FSMContext,
+    user: dict,
+    views: tuple[RichView, ClassicView],
+) -> None:
     """Очистить чат, отправить расписание и запомнить ID."""
     await _cleanup(message, state)
     data = await state.get_data()
     header_id = data.get("last_bot_msg")
-    sent = await message.answer(text, reply_markup=schedule_detail_kb(date_iso), parse_mode="HTML")
+    rich, classic = views
+    sent = await send_schedule(message.bot, message.chat.id, user, rich=rich, classic=classic)
     await register_ui_messages(
         state,
-        [header_id, sent.message_id],
+        [header_id, *(msg.message_id for msg in sent)],
         screen="schedule",
         last_bot_msg=header_id,
-        last_schedule_msg=sent.message_id,
+        last_schedule_msg=sent[-1].message_id if sent else None,
     )
 
 
@@ -861,16 +1069,9 @@ async def on_schedule_today(message: Message, state: FSMContext) -> None:
         await message.answer(register_required_text(), parse_mode=HTML_PARSE_MODE)
         return
     data = await state.get_data()
-    today = app_today()
-    sg_inf = user.get("subgroup_cs", 1) or 1
-    sg_eng = user.get("subgroup_en", 1) or 1
-    compact = bool(user.get("compact_mode"))
-    group_name = _schedule_group_name(user, data)
-    extra_keys = _schedule_extra_keys(user, data)
     await push_nav(state, "schedule_period")
     await _update_period_header(message, state, _period_header("Сегодня:", data))
-    text = await get_schedule_for_date_short(group_name, today, sg_inf, sg_eng, compact, extra_keys)
-    await _send_schedule(message, state, text, today.isoformat())
+    await _send_screen(message, state, user, _day_views(user, data, app_today()))
 
 
 @router.message(ScheduleNav.period, F.text == "Завтра")
@@ -882,17 +1083,9 @@ async def on_schedule_tomorrow(message: Message, state: FSMContext) -> None:
         return
     data = await state.get_data()
     tomorrow = app_today() + datetime.timedelta(days=1)
-    sg_inf = user.get("subgroup_cs", 1) or 1
-    sg_eng = user.get("subgroup_en", 1) or 1
-    compact = bool(user.get("compact_mode"))
-    group_name = _schedule_group_name(user, data)
-    extra_keys = _schedule_extra_keys(user, data)
     await push_nav(state, "schedule_period")
     await _update_period_header(message, state, _period_header("Завтра:", data))
-    text = await get_schedule_for_date_short(
-        group_name, tomorrow, sg_inf, sg_eng, compact, extra_keys
-    )
-    await _send_schedule(message, state, text, tomorrow.isoformat())
+    await _send_screen(message, state, user, _day_views(user, data, tomorrow))
 
 
 @router.message(ScheduleNav.period, F.text == "Эта неделя")
@@ -905,49 +1098,9 @@ async def on_schedule_week(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     today = app_today()
     monday = today - datetime.timedelta(days=today.weekday())
-    sg_inf = user.get("subgroup_cs", 1) or 1
-    sg_eng = user.get("subgroup_en", 1) or 1
-    compact = bool(user.get("compact_mode"))
-    group_name = _schedule_group_name(user, data)
-    extra_keys = _schedule_extra_keys(user, data)
-
     await push_nav(state, "schedule_period")
     await _update_period_header(message, state, _period_header("Эта неделя:", data))
-    await _cleanup(message, state)
-    data = await state.get_data()
-    header_id = data.get("last_bot_msg")
-
-    parts = []
-    for i in range(7):
-        d = monday + datetime.timedelta(days=i)
-        text = await get_schedule_for_date_short(group_name, d, sg_inf, sg_eng, compact, extra_keys)
-        if d == today:
-            text = text.replace("</b>", "  ⬅️</b>", 1)
-        parts.append(text)
-
-    full_text = "\n\n".join(parts)
-    if len(full_text) > 4000:
-        chunks = _split_text(full_text, 4000)
-        sent_ids = []
-        for chunk in chunks:
-            sent = await message.answer(chunk, parse_mode="HTML")
-            sent_ids.append(sent.message_id)
-        await register_ui_messages(
-            state,
-            [header_id, *sent_ids],
-            screen="schedule",
-            last_bot_msg=header_id,
-            last_schedule_msg=sent_ids[-1] if sent_ids else None,
-        )
-    else:
-        sent = await message.answer(full_text, parse_mode="HTML")
-        await register_ui_messages(
-            state,
-            [header_id, sent.message_id],
-            screen="schedule",
-            last_bot_msg=header_id,
-            last_schedule_msg=sent.message_id,
-        )
+    await _send_screen(message, state, user, _week_views(user, data, monday, "this"))
 
 
 @router.message(ScheduleNav.period, F.text == "След. неделя")
@@ -960,61 +1113,52 @@ async def on_schedule_next_week(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     today = app_today()
     next_monday = today - datetime.timedelta(days=today.weekday()) + datetime.timedelta(weeks=1)
-    sg_inf = user.get("subgroup_cs", 1) or 1
-    sg_eng = user.get("subgroup_en", 1) or 1
-    compact = bool(user.get("compact_mode"))
-    group_name = _schedule_group_name(user, data)
-    extra_keys = _schedule_extra_keys(user, data)
-
     await push_nav(state, "schedule_period")
     await _update_period_header(message, state, _period_header("След. неделя:", data))
-    await _cleanup(message, state)
+    await _send_screen(message, state, user, _week_views(user, data, next_monday, "next"))
+
+
+async def _answer_legacy_button(
+    callback: CallbackQuery, state: FSMContext, user: dict, date_iso: str
+) -> None:
+    """«Подробнее / Свернуть» на старом сообщении у пользователя с новым видом.
+
+    Старое сообщение не конвертируем: снимаем с него кнопки и присылаем новое.
+    """
+    await callback.answer(LEGACY_BUTTON_TEXT)
+    old = callback.message
+    if old is None:
+        return
+    try:
+        await callback.bot.edit_message_reply_markup(
+            chat_id=old.chat.id, message_id=old.message_id, reply_markup=None
+        )
+    except TelegramBadRequest:
+        pass  # кнопок уже нет или сообщение слишком старое
+    try:
+        target_date = datetime.date.fromisoformat(date_iso)
+    except ValueError:
+        return
     data = await state.get_data()
-    header_id = data.get("last_bot_msg")
-
-    parts = []
-    for i in range(7):
-        d = next_monday + datetime.timedelta(days=i)
-        text = await get_schedule_for_date_short(group_name, d, sg_inf, sg_eng, compact, extra_keys)
-        parts.append(text)
-
-    full_text = "\n\n".join(parts)
-    if len(full_text) > 4000:
-        chunks = _split_text(full_text, 4000)
-        sent_ids = []
-        for chunk in chunks:
-            sent = await message.answer(chunk, parse_mode="HTML")
-            sent_ids.append(sent.message_id)
-        await register_ui_messages(
-            state,
-            [header_id, *sent_ids],
-            screen="schedule",
-            last_bot_msg=header_id,
-            last_schedule_msg=sent_ids[-1] if sent_ids else None,
-        )
-    else:
-        sent = await message.answer(full_text, parse_mode="HTML")
-        await register_ui_messages(
-            state,
-            [header_id, sent.message_id],
-            screen="schedule",
-            last_bot_msg=header_id,
-            last_schedule_msg=sent.message_id,
-        )
+    rich, classic = _day_views(user, data, target_date)
+    sent = await send_schedule(callback.bot, old.chat.id, user, rich=rich, classic=classic)
+    await add_ui_messages(state, [msg.message_id for msg in sent])
 
 
 @router.callback_query(F.data.startswith("schedule_detail:"))
 async def on_schedule_detail(callback: CallbackQuery, state: FSMContext) -> None:
-    """Развернуть подробный вид (edit_message_text)."""
+    """Развернуть подробный вид (классика) или ответить на старую кнопку (новый вид)."""
     date_iso = callback.data.split(":", 1)[1]
-    target_date = datetime.date.fromisoformat(date_iso)
     user = await get_user(callback.from_user.id)
     if not user:
         await callback.answer("Открой /start", show_alert=True)
         return
+    if rich_enabled(user):
+        await _answer_legacy_button(callback, state, user, date_iso)
+        return
+    target_date = datetime.date.fromisoformat(date_iso)
     data = await state.get_data()
-    sg_inf = user.get("subgroup_cs", 1) or 1
-    sg_eng = user.get("subgroup_en", 1) or 1
+    sg_inf, sg_eng = _subgroups(user)
     group_name = _schedule_group_name(user, data)
     extra_keys = _schedule_extra_keys(user, data)
     text = await get_schedule_for_date_detailed(group_name, target_date, sg_inf, sg_eng, extra_keys)
@@ -1026,16 +1170,18 @@ async def on_schedule_detail(callback: CallbackQuery, state: FSMContext) -> None
 
 @router.callback_query(F.data.startswith("schedule_collapse:"))
 async def on_schedule_collapse(callback: CallbackQuery, state: FSMContext) -> None:
-    """Свернуть обратно в краткий вид (edit_message_text)."""
+    """Свернуть в краткий вид (классика) или ответить на старую кнопку (новый вид)."""
     date_iso = callback.data.split(":", 1)[1]
-    target_date = datetime.date.fromisoformat(date_iso)
     user = await get_user(callback.from_user.id)
     if not user:
         await callback.answer("Открой /start", show_alert=True)
         return
+    if rich_enabled(user):
+        await _answer_legacy_button(callback, state, user, date_iso)
+        return
+    target_date = datetime.date.fromisoformat(date_iso)
     data = await state.get_data()
-    sg_inf = user.get("subgroup_cs", 1) or 1
-    sg_eng = user.get("subgroup_en", 1) or 1
+    sg_inf, sg_eng = _subgroups(user)
     compact = bool(user.get("compact_mode"))
     group_name = _schedule_group_name(user, data)
     extra_keys = _schedule_extra_keys(user, data)
