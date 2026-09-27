@@ -84,3 +84,16 @@ def test_settings_menu_view_label():
 
     assert label(classic=False) == "📱 Вид расписания: Новый"
     assert label(classic=True) == "📱 Вид расписания: Компактный"
+
+
+from keyboards import main_menu_kb, schedule_period_reply_kb  # noqa: E402
+
+
+def test_reply_accent_buttons_are_primary_and_text_unchanged():
+    menu = main_menu_kb()
+    period = schedule_period_reply_kb()
+
+    assert (menu.keyboard[0][0].text, menu.keyboard[0][0].style) == ("📅 Расписание", "primary")
+    assert (period.keyboard[0][0].text, period.keyboard[0][0].style) == ("Сегодня", "primary")
+    assert period.keyboard[0][1].style is None
+    assert period.keyboard[2][0].text == "⬅️ Назад"

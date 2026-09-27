@@ -12,6 +12,10 @@ from aiogram.types import (
 from config import COURSES, ENG_SUBGROUPS, EXTRA_ENABLED, GROUPS
 from render_rich import NavButton
 
+# Цвет главных reply-кнопок (Bot API 9.4, KeyboardButton.style): "primary" — синий,
+# None — стиль приложения. Старые клиенты стиль игнорируют.
+REPLY_ACCENT_STYLE: str | None = "primary"
+
 # ── Reply-клавиатуры ──────────────────────────────────────
 
 
@@ -21,7 +25,7 @@ def main_menu_kb(role: str = "student", show_extra_button: bool = True) -> Reply
     if show_extra_button and EXTRA_ENABLED:
         link_row.append(KeyboardButton(text="📌 Доп. занятия"))
     rows = [
-        [KeyboardButton(text="📅 Расписание")],
+        [KeyboardButton(text="📅 Расписание", style=REPLY_ACCENT_STYLE)],
         link_row,
     ]
     if role == "starosta":
@@ -129,7 +133,10 @@ def schedule_period_reply_kb() -> ReplyKeyboardMarkup:
     """Выбор периода расписания (reply-кнопки)."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Сегодня"), KeyboardButton(text="Завтра")],
+            [
+                KeyboardButton(text="Сегодня", style=REPLY_ACCENT_STYLE),
+                KeyboardButton(text="Завтра"),
+            ],
             [KeyboardButton(text="Эта неделя"), KeyboardButton(text="След. неделя")],
             [KeyboardButton(text="⬅️ Назад")],
         ],
