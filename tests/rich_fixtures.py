@@ -147,19 +147,19 @@ CHANGES = [
 ]
 
 
-def day_html(date: datetime.date, now: datetime.datetime, **kwargs) -> str:
+def day_html(date: datetime.date, now: datetime.datetime, *, nav=(), **kwargs) -> str:
     """День так же, как собирает бот: с ближайшим учебным днём, если он нужен."""
     target = day(date, **kwargs)
     nearest = upcoming(date) if render_rich.needs_upcoming(target, now) else None
-    return render_day_html(target, now=now, group=GROUP, upcoming=nearest)
+    return render_day_html(target, now=now, group=GROUP, upcoming=nearest, nav=nav)
 
 
 def today_html(now: datetime.datetime) -> str:
     return day_html(now.date(), now)
 
 
-def week_html(monday: datetime.date, now: datetime.datetime, which: str) -> str:
-    return render_week_html(week(monday), now=now, group=GROUP, which=which)
+def week_html(monday: datetime.date, now: datetime.datetime, which: str, nav=()) -> str:
+    return render_week_html(week(monday), now=now, group=GROUP, which=which, nav=nav)
 
 
 CASES: dict[str, Callable[[], str]] = {
@@ -177,4 +177,14 @@ CASES: dict[str, Callable[[], str]] = {
     "week_this_sunday": lambda: week_html(MONDAY, at(27, 12, 0), "this"),
     "week_next": lambda: week_html(MONDAY, at(18, 12, 0), "next"),
     "week_month_boundary": lambda: week_html(datetime.date(2026, 9, 28), at(30, 12, 0), "this"),
+    # Живое сообщение: кнопки навигации в теле, прошедшая неделя целиком свёрнута.
+    "day_with_nav": lambda: day_html(
+        FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY)
+    ),
+    "week_past_with_nav": lambda: week_html(
+        datetime.date(2026, 9, 14),
+        at(25, 1, 22),
+        "past",
+        nav=schedule.week_nav(datetime.date(2026, 9, 14), GROUP, FRIDAY),
+    ),
 }

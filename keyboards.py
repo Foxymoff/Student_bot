@@ -10,6 +10,7 @@ from aiogram.types import (
 )
 
 from config import COURSES, ENG_SUBGROUPS, EXTRA_ENABLED, GROUPS
+from render_rich import NavButton
 
 # ── Reply-клавиатуры ──────────────────────────────────────
 
@@ -142,6 +143,22 @@ def schedule_detail_kb(date_iso: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📖 Подробнее", callback_data=f"schedule_detail:{date_iso}")]
+        ]
+    )
+
+
+def schedule_nav_kb(buttons: list[NavButton]) -> InlineKeyboardMarkup:
+    """Навигация rich-расписания inline-кнопками; текущая кнопка — синяя (style)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=button.text,
+                    callback_data=button.data,
+                    style="primary" if button.active else None,
+                )
+                for button in buttons
+            ]
         ]
     )
 

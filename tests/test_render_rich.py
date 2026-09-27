@@ -15,7 +15,15 @@ import pytest
 import extra_schedule
 from config import APP_TIMEZONE, GROUPS
 from handlers import schedule
-from render_rich import Day, Lesson, plural_pairs, render_day_html, render_week_html
+from render_rich import (
+    Day,
+    Lesson,
+    NavButton,
+    button_row,
+    plural_pairs,
+    render_day_html,
+    render_week_html,
+)
 from tests.rich_fixtures import (
     CASES,
     FRIDAY,
@@ -72,6 +80,8 @@ ALLOWED_TAGS: dict[str, set[str]] = {
     "br": set(),
     "a": {"href"},
     "tg-time": {"unix", "format"},
+    "tg-button-row": {"align"},
+    "tg-button": {"type", "style", "data"},
 }
 VOID_TAGS = {"br", "hr"}
 
@@ -96,6 +106,14 @@ class _Checker(HTMLParser):
             self.errors.append("tg-time не с format=r")
         if tag == "a" and "td" in self.stack:
             self.errors.append("ссылка в ячейке таблицы")
+        if tag == "tg-button":
+            attrs_map = dict(attrs)
+            if attrs_map.get("type") != "callback_data" or not attrs_map.get("data"):
+                self.errors.append("tg-button не callback_data")
+            if len(attrs_map["data"].encode()) > 64:
+                self.errors.append("callback_data длиннее 64 байт")
+            if self.stack[-1:] != ["tg-button-row"]:
+                self.errors.append("tg-button вне tg-button-row")
         if tag not in VOID_TAGS:
             self.stack.append(tag)
 
@@ -416,3 +434,39 @@ def test_all_real_schedules_render_valid_html():
             for index, target in enumerate(days):
                 nearest = next((d for d in days[index + 1 :] if d.lessons), None)
                 check_html(render_day_html(target, now=now, group=group, upcoming=nearest))
+
+
+# ── Кнопки навигации (живое сообщение) ────────────────────
+
+
+def test_button_row_styles_and_escaping():
+    html = button_row(
+        [NavButton("‹ <вчера>", 'rs:"x"&y'), NavButton("Сегодня", "rs:t", active=True)]
+    )
+
+    assert html == (
+        '<tg-button-row align="center">'
+        '<tg-button type="callback_data" style="link" data="rs:&quot;x&quot;&amp;y">'
+        "‹ &lt;вчера&gt;</tg-button>"
+        '<tg-button type="callback_data" style="primary" data="rs:t">Сегодня</tg-button>'
+        "</tg-button-row>"
+    )
+    assert button_row([]) == ""
+
+
+def test_nav_goes_last_in_day_and_week():
+    buttons = [NavButton("Сегодня", "rs:t", active=True)]
+    day_page = render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons)
+    week_page = render_week_html(week(MONDAY), now=at(25, 1, 22), group=GROUP, nav=buttons)
+
+    for html in (day_page, week_page):
+        check_html(html)
+        assert html.endswith(f"<footer>{GROUP}</footer>{button_row(buttons)}")
+
+
+def test_past_week_is_collapsed_without_ended_note():
+    html = render_week_html(week(MONDAY), now=at(2, 12, 0, month=10), group=GROUP, which="past")
+
+    assert "<details open>" not in html
+    assert "Эта неделя закончилась" not in html
+    assert "<mark>" not in html

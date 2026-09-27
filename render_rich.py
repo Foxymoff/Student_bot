@@ -8,6 +8,7 @@
 
 import datetime
 import html
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -43,6 +44,14 @@ LOOKAHEAD_DAYS = 14
 
 WEEKDAY_ABBR: tuple[str, ...] = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
+# Навигация кнопками в теле сообщения (<tg-button-row>): обычные кнопки — ссылками,
+# текущая (сегодня / эта неделя) — синей; её нажатие обновляет сообщение.
+NAV_ALIGN = "center"
+NAV_STYLE = "link"
+NAV_ACTIVE_STYLE = "primary"
+
+WeekKind = Literal["this", "next", "past"]
+
 
 # ── Модели ────────────────────────────────────────────────
 
@@ -72,6 +81,15 @@ class Day:
 
     date: datetime.date
     lessons: tuple[Lesson, ...] = ()
+
+
+@dataclass(frozen=True)
+class NavButton:
+    """Кнопка навигации: callback_data до 64 байт, active — текущий день или неделя."""
+
+    text: str
+    data: str
+    active: bool = False
 
 
 # ── Хелперы ───────────────────────────────────────────────
@@ -345,6 +363,21 @@ def _full_details(day: Day) -> str:
     return _details(esc(DETAILS_SUMMARY), body)
 
 
+def _button(button: NavButton) -> str:
+    style = NAV_ACTIVE_STYLE if button.active else NAV_STYLE
+    data = esc(button.data, quote=True)
+    text = esc(button.text)
+    return f'<tg-button type="callback_data" style="{style}" data="{data}">{text}</tg-button>'
+
+
+def button_row(buttons: Sequence[NavButton]) -> str:
+    """Ряд callback-кнопок в теле сообщения; пустая строка, если кнопок нет."""
+    if not buttons:
+        return ""
+    items = "".join(_button(button) for button in buttons)
+    return f'<tg-button-row align="{NAV_ALIGN}">{items}</tg-button-row>'
+
+
 # ── День ──────────────────────────────────────────────────
 
 
@@ -409,25 +442,27 @@ def render_day_html(
     updated_at: datetime.datetime | None = None,
     upcoming: Day | None = None,
     lead: str | None = None,
+    nav: Sequence[NavButton] = (),
 ) -> str:
     """Расписание на день.
 
     upcoming — ближайший учебный день после ``day`` (для пустого дня и для «сегодня»
     после последней пары, см. needs_upcoming); lead — подпись над заголовком
-    (например, «Расписание на сегодня» в ежедневной рассылке).
+    (например, «Расписание на сегодня» в ежедневной рассылке); nav — кнопки в конце.
     """
     parts = []
     if lead:
         parts.append(_wrap("p", _wrap("b", esc(lead))))
     parts.append(_day_body(day, now, upcoming))
     parts.append(_footer(group, updated_at, now))
+    parts.append(button_row(nav))
     return "".join(parts)
 
 
 # ── Неделя ────────────────────────────────────────────────
 
 
-def _week_day(day: Day, now: datetime.datetime, which: Literal["this", "next"]) -> str:
+def _week_day(day: Day, now: datetime.datetime, which: WeekKind) -> str:
     """Один день недели: details с таблицей или абзац «пар нет»."""
     today = _is_today(day, now)
     label = _day_label(day.date)
@@ -445,6 +480,8 @@ def _week_day(day: Day, now: datetime.datetime, which: Literal["this", "next"]) 
 
     if which == "next":
         is_open = WEEK_OPEN_NEXT
+    elif which == "past":
+        is_open = False
     elif day.date < _local_now(now).date():
         is_open = WEEK_OPEN_PAST
     elif today:
@@ -460,9 +497,14 @@ def render_week_html(
     now: datetime.datetime,
     group: str,
     updated_at: datetime.datetime | None = None,
-    which: Literal["this", "next"] = "this",
+    which: WeekKind = "this",
+    nav: Sequence[NavButton] = (),
 ) -> str:
-    """Неделя аккордеоном: день — свёрнутый или раскрытый details."""
+    """Неделя аккордеоном: день — свёрнутый или раскрытый details.
+
+    which: "this" — текущая неделя, "next" — будущая (всё раскрыто),
+    "past" — прошедшая (всё свёрнуто); nav — кнопки в конце.
+    """
     shown = [
         day
         for day in sorted(days, key=lambda d: d.date)
@@ -476,4 +518,5 @@ def render_week_html(
         parts.append(_wrap("p", "Эта неделя закончилась."))
     parts.extend(_week_day(day, now, which) for day in shown)
     parts.append(_footer(group, updated_at, now))
+    parts.append(button_row(nav))
     return "".join(parts)

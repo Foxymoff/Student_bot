@@ -20,14 +20,11 @@ from database import (
 )
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.schedule import (
-    ClassicMessages,
     _has_added_override,
+    day_views,
     get_lessons_for_date,
-    get_schedule_for_date_short,
-    render_rich_day,
     send_schedule,
 )
-from keyboards import schedule_detail_kb
 from message_style import title
 
 logger = logging.getLogger(__name__)
@@ -76,9 +73,6 @@ async def _send_daily_schedule(bot: Bot, user: dict, today: datetime.date) -> bo
         header = f"☀️ {title(lead)}"
 
     group_name = user["group_name"]
-    sg_inf = user.get("subgroup_cs", 1) or 1
-    sg_eng = user.get("subgroup_en", 1) or 1
-    compact = bool(user.get("compact_mode"))
     extra_keys = (
         parse_extra_choices(user.get("extra_choices")) if user.get("extra_in_schedule") else []
     )
@@ -92,15 +86,8 @@ async def _send_daily_schedule(bot: Bot, user: dict, today: datetime.date) -> bo
         if not _has_added_override(overrides):
             return False
 
-    async def rich() -> str:
-        # Подпись сверху — чтобы было понятно, что это автоотправка, а не ответ на кнопку.
-        return await render_rich_day(group_name, target_date, sg_inf, sg_eng, extra_keys, lead=lead)
-
-    async def classic() -> ClassicMessages:
-        text = await get_schedule_for_date_short(
-            group_name, target_date, sg_inf, sg_eng, compact, extra_keys
-        )
-        return [(f"{header}\n\n{text}", schedule_detail_kb(target_date.isoformat()))]
+    # Подпись сверху — чтобы было понятно, что это автоотправка, а не ответ на кнопку.
+    views = day_views(user, group_name, target_date, lead=lead, classic_header=header)
 
     # Удаляем неактуальное ежедневное расписание за прошлый раз, если оно ещё висит.
     prev_msg_id = user.get("daily_notify_last_msg_id")
@@ -113,8 +100,9 @@ async def _send_daily_schedule(bot: Bot, user: dict, today: datetime.date) -> bo
         bot,
         user["user_id"],
         user,
-        rich=rich,
-        classic=classic,
+        rich=views.rich,
+        classic=views.classic,
+        rich_markup=views.markup,
         disable_notification=not bool(user.get("daily_notify_sound", 1)),
     )
     await mark_user_daily_notify_sent(user["user_id"], today.isoformat(), sent[-1].message_id)

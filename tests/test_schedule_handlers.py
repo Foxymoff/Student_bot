@@ -195,7 +195,17 @@ async def test_today_button_sends_one_rich_message(state, monkeypatch, fixed_dat
 
     html = message.bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert html.startswith("<h3>Пятница, 25 сентября</h3><p>3 пары, 09:20–15:00 · начало")
-    assert "reply_markup" not in message.bot.send_rich_message.await_args.kwargs
+    assert message.bot.send_rich_message.await_args.kwargs["reply_markup"] is None
+    # Навигация — кнопками в теле сообщения, «Сегодня» — текущая.
+    assert html.endswith(
+        '<tg-button-row align="center">'
+        '<tg-button type="callback_data" style="link" data="rs:d:2026-09-24:ИСП-25-2">'
+        "‹ Чт, 24</tg-button>"
+        '<tg-button type="callback_data" style="primary" data="rs:d:2026-09-25:ИСП-25-2">'
+        "Сегодня</tg-button>"
+        '<tg-button type="callback_data" style="link" data="rs:d:2026-09-26:ИСП-25-2">'
+        "Сб, 26 ›</tg-button></tg-button-row>"
+    )
     data = await state.get_data()
     assert data["ui_msg_ids"] == [77, 101]
     assert data["last_schedule_msg"] == 101
@@ -386,3 +396,164 @@ async def test_settings_toggle_classic_same_value_only_answers(monkeypatch):
 
     callback.answer.assert_awaited_once_with("Уже включён новый вид")
     callback.message.edit_text.assert_not_awaited()
+
+
+# ── Живое сообщение: навигация ────────────────────────────
+
+FRIDAY = datetime.date(2026, 9, 25)
+
+
+def test_nav_data_roundtrip_and_limit():
+    for group in config.GROUPS:
+        data = schedule.nav_data(schedule.NAV_DAY, FRIDAY, group)
+        assert len(data.encode()) <= 64
+        assert schedule.parse_nav_data(data) == ("d", FRIDAY, group)
+
+
+@pytest.mark.parametrize(
+    "data",
+    ["rs:d:2026-13-01:ИСП-25-2", "rs:x:2026-09-25:ИСП-25-2", "rs:d:2026-09-25:ЧУЖАЯ", "rs:d"],
+)
+def test_parse_nav_data_rejects_garbage(data):
+    assert schedule.parse_nav_data(data) is None
+
+
+def test_day_and_week_nav():
+    day = schedule.day_nav(datetime.date(2026, 9, 27), GROUP, FRIDAY)
+    week = schedule.week_nav(datetime.date(2026, 9, 21), GROUP, FRIDAY)
+
+    assert [(b.text, b.active) for b in day] == [
+        ("‹ Сб, 26", False),
+        ("Сегодня", False),
+        ("Пн, 28 ›", False),
+    ]
+    assert day[1].data == "rs:d:2026-09-25:ИСП-25-2"
+    assert [(b.text, b.active) for b in week] == [
+        ("‹ Пред.", False),
+        ("Эта неделя", True),
+        ("След. ›", False),
+    ]
+    assert week[2].data == "rs:w:2026-09-28:ИСП-25-2"
+
+
+def test_extras_only_for_own_group():
+    user = {**USER, "extra_in_schedule": 1, "extra_choices": '["a"]'}
+
+    assert schedule._viewer(user, GROUP)[3] == ["a"]
+    assert schedule._viewer(user, "МР-25")[3] == []
+
+
+def test_nav_as_keyboard_when_not_in_body(monkeypatch, fixed_data):
+    monkeypatch.setattr(schedule, "NAV_IN_BODY", False)
+
+    views = schedule.day_views(USER, GROUP, FRIDAY)
+
+    buttons = views.markup.inline_keyboard[0]
+    assert [(b.text, b.style) for b in buttons] == [
+        ("‹ Чт, 24", None),
+        ("Сегодня", "primary"),
+        ("Сб, 26 ›", None),
+    ]
+
+
+def _nav_callback(data: str, message_id: int = 50) -> MagicMock:
+    callback = _callback(data)
+    callback.message.message_id = message_id
+    callback.bot.edit_message_text = AsyncMock()
+    return callback
+
+
+@pytest.fixture
+def rich_user(monkeypatch):
+    async def get_user(user_id):
+        return USER
+
+    monkeypatch.setattr(schedule, "get_user", get_user)
+
+
+async def test_nav_edits_message_in_place(state, fixed_data, rich_user):
+    callback = _nav_callback("rs:d:2026-09-26:ИСП-25-2")
+    await state.update_data(last_bot_msg=77, last_schedule_msg=50)
+
+    await schedule.on_schedule_nav(callback, state)
+
+    edits = callback.bot.edit_message_text.await_args_list
+    rich_edit, header_edit = edits
+    assert rich_edit.kwargs["chat_id"] == 9 and rich_edit.kwargs["message_id"] == 50
+    html = rich_edit.kwargs["rich_message"].html
+    assert html.startswith("<h3>Суббота, 26 сентября</h3>")
+    assert 'style="link" data="rs:d:2026-09-25:ИСП-25-2">Сегодня</tg-button>' in html
+    assert header_edit.args[0] == "<b>Завтра</b>"
+    assert header_edit.kwargs["message_id"] == 77
+    callback.answer.assert_awaited_once_with()
+    callback.bot.send_rich_message.assert_not_awaited()
+
+
+async def test_nav_week_uses_monday_and_past_kind(state, fixed_data, rich_user):
+    callback = _nav_callback("rs:w:2026-09-16:ИСП-25-2")
+
+    await schedule.on_schedule_nav(callback, state)
+
+    html = callback.bot.edit_message_text.await_args.kwargs["rich_message"].html
+    assert html.startswith("<h3>Неделя 14–19 сентября</h3>")
+    assert "<details open>" not in html
+    assert "Эта неделя закончилась" not in html
+
+
+async def test_nav_not_modified_only_answers(state, fixed_data, rich_user):
+    callback = _nav_callback("rs:d:2026-09-25:ИСП-25-2")
+    callback.bot.edit_message_text.side_effect = TelegramBadRequest(
+        method=MagicMock(), message="Bad Request: message is not modified"
+    )
+
+    await schedule.on_schedule_nav(callback, state)
+
+    callback.answer.assert_awaited_once_with("Расписание актуально")
+    callback.bot.send_rich_message.assert_not_awaited()
+
+
+async def test_nav_edit_failure_sends_new_message(state, fixed_data, rich_user):
+    callback = _nav_callback("rs:d:2026-09-25:ИСП-25-2")
+    callback.bot.edit_message_text.side_effect = TelegramBadRequest(
+        method=MagicMock(), message="Bad Request: message can't be edited"
+    )
+    await state.update_data(ui_msg_ids=[77, 50])
+
+    await schedule.on_schedule_nav(callback, state)
+
+    html = callback.bot.send_rich_message.await_args.kwargs["rich_message"].html
+    assert html.startswith("<h3>Пятница, 25 сентября</h3>")
+    assert (await state.get_data())["ui_msg_ids"] == [77, 50, 101]
+
+
+async def test_nav_for_classic_user_sends_classic(state, monkeypatch, fixed_data):
+    async def get_user(user_id):
+        return {**USER, "classic_view": 1}
+
+    monkeypatch.setattr(schedule, "get_user", get_user)
+    callback = _nav_callback("rs:d:2026-09-25:ИСП-25-2")
+
+    await schedule.on_schedule_nav(callback, state)
+
+    callback.answer.assert_awaited_once_with(schedule.CLASSIC_NAV_TEXT)
+    callback.bot.edit_message_text.assert_not_awaited()
+    assert callback.bot.send_message.await_args.kwargs["reply_markup"] == (
+        schedule.schedule_detail_kb("2026-09-25")
+    )
+
+
+async def test_nav_stale_button(state):
+    callback = _nav_callback("rs:d:garbage")
+
+    await schedule.on_schedule_nav(callback, state)
+
+    callback.answer.assert_awaited_once_with("Кнопка устарела — открой расписание заново")
+
+
+async def test_daily_notify_rich_has_nav(daily):
+    bot = _bot()
+
+    await scheduler._send_daily_schedule(bot, USER, FRIDAY)
+
+    html = bot.send_rich_message.await_args.kwargs["rich_message"].html
+    assert html.endswith("Сб, 26 ›</tg-button></tg-button-row>")
