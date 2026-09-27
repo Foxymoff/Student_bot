@@ -199,12 +199,11 @@ async def test_today_button_sends_one_rich_message(state, monkeypatch, fixed_dat
     # Навигация — кнопками в теле сообщения, «Сегодня» — текущая.
     assert html.endswith(
         '<tg-button-row align="center">'
-        '<tg-button type="callback_data" style="link" data="rs:d:2026-09-24:ИСП-25-2">'
-        "‹ Чт, 24</tg-button>"
+        '<tg-button type="callback_data" data="rs:d:2026-09-24:ИСП-25-2">‹ Чт, 24</tg-button>'
         '<tg-button type="callback_data" style="primary" data="rs:d:2026-09-25:ИСП-25-2">'
         "Сегодня</tg-button>"
-        '<tg-button type="callback_data" style="link" data="rs:d:2026-09-26:ИСП-25-2">'
-        "Сб, 26 ›</tg-button></tg-button-row>"
+        '<tg-button type="callback_data" data="rs:d:2026-09-26:ИСП-25-2">Сб, 26 ›</tg-button>'
+        "</tg-button-row>"
     )
     data = await state.get_data()
     assert data["ui_msg_ids"] == [77, 101]
@@ -482,7 +481,10 @@ async def test_nav_edits_message_in_place(state, fixed_data, rich_user):
     assert rich_edit.kwargs["chat_id"] == 9 and rich_edit.kwargs["message_id"] == 50
     html = rich_edit.kwargs["rich_message"].html
     assert html.startswith("<h3>Суббота, 26 сентября</h3>")
-    assert 'style="link" data="rs:d:2026-09-25:ИСП-25-2">Сегодня</tg-button>' in html
+    assert (
+        '<tg-button type="callback_data" data="rs:d:2026-09-25:ИСП-25-2">Сегодня</tg-button>'
+        in html
+    )
     assert header_edit.args[0] == "<b>Завтра</b>"
     assert header_edit.kwargs["message_id"] == 77
     callback.answer.assert_awaited_once_with()

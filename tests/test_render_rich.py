@@ -13,13 +13,14 @@ from pathlib import Path
 import pytest
 
 import extra_schedule
+import render_rich
 from config import APP_TIMEZONE, GROUPS
 from handlers import schedule
 from render_rich import (
     Day,
     Lesson,
     NavButton,
-    button_row,
+    nav_html,
     plural_pairs,
     render_day_html,
     render_week_html,
@@ -112,8 +113,8 @@ class _Checker(HTMLParser):
                 self.errors.append("tg-button не callback_data")
             if len(attrs_map["data"].encode()) > 64:
                 self.errors.append("callback_data длиннее 64 байт")
-            if self.stack[-1:] != ["tg-button-row"]:
-                self.errors.append("tg-button вне tg-button-row")
+            if self.stack[-1:] not in (["tg-button-row"], ["p"]):
+                self.errors.append("tg-button вне tg-button-row и абзаца")
         if tag not in VOID_TAGS:
             self.stack.append(tag)
 
@@ -439,19 +440,29 @@ def test_all_real_schedules_render_valid_html():
 # ── Кнопки навигации (живое сообщение) ────────────────────
 
 
-def test_button_row_styles_and_escaping():
-    html = button_row(
-        [NavButton("‹ <вчера>", 'rs:"x"&y'), NavButton("Сегодня", "rs:t", active=True)]
-    )
+def test_nav_row_styles_and_escaping():
+    html = nav_html([NavButton("‹ <вчера>", 'rs:"x"&y'), NavButton("Сегодня", "rs:t", active=True)])
 
+    # В ряду style="link" сервер отбрасывает — обычные кнопки без стиля.
     assert html == (
         '<tg-button-row align="center">'
-        '<tg-button type="callback_data" style="link" data="rs:&quot;x&quot;&amp;y">'
-        "‹ &lt;вчера&gt;</tg-button>"
+        '<tg-button type="callback_data" data="rs:&quot;x&quot;&amp;y">‹ &lt;вчера&gt;</tg-button>'
         '<tg-button type="callback_data" style="primary" data="rs:t">Сегодня</tg-button>'
         "</tg-button-row>"
     )
-    assert button_row([]) == ""
+    assert nav_html([]) == ""
+
+
+def test_nav_inline_layout(monkeypatch):
+    monkeypatch.setattr(render_rich, "NAV_LAYOUT", "inline")
+
+    html = nav_html([NavButton("‹ Чт, 24", "rs:a"), NavButton("Сегодня", "rs:b", active=True)])
+
+    assert html == (
+        '<p><tg-button type="callback_data" style="link" data="rs:a">‹ Чт, 24</tg-button> · '
+        '<tg-button type="callback_data" style="primary" data="rs:b">Сегодня</tg-button></p>'
+    )
+    check_html(html)
 
 
 def test_nav_goes_last_in_day_and_week():
@@ -461,7 +472,7 @@ def test_nav_goes_last_in_day_and_week():
 
     for html in (day_page, week_page):
         check_html(html)
-        assert html.endswith(f"<footer>{GROUP}</footer>{button_row(buttons)}")
+        assert html.endswith(f"<footer>{GROUP}</footer>{nav_html(buttons)}")
 
 
 def test_past_week_is_collapsed_without_ended_note():

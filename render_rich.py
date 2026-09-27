@@ -44,11 +44,15 @@ LOOKAHEAD_DAYS = 14
 
 WEEKDAY_ABBR: tuple[str, ...] = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
-# Навигация кнопками в теле сообщения (<tg-button-row>): обычные кнопки — ссылками,
-# текущая (сегодня / эта неделя) — синей; её нажатие обновляет сообщение.
+# Навигация кнопками в теле сообщения. "row" — ряд кнопок (<tg-button-row>),
+# "inline" — ссылки в абзаце через « · ». Текущая кнопка (сегодня / эта неделя) синяя,
+# её нажатие обновляет сообщение. По эху сервера: в ряду style="link" отбрасывается
+# (primary, success, danger сохраняются), поэтому обычные кнопки ряда без стиля;
+# "link" работает только у кнопок внутри абзаца.
+NAV_LAYOUT: Literal["row", "inline"] = "row"
 NAV_ALIGN = "center"
-NAV_STYLE = "link"
 NAV_ACTIVE_STYLE = "primary"
+NAV_INLINE_STYLE = "link"
 
 WeekKind = Literal["this", "next", "past"]
 
@@ -363,18 +367,21 @@ def _full_details(day: Day) -> str:
     return _details(esc(DETAILS_SUMMARY), body)
 
 
-def _button(button: NavButton) -> str:
-    style = NAV_ACTIVE_STYLE if button.active else NAV_STYLE
+def _button(button: NavButton, idle_style: str | None) -> str:
+    style = NAV_ACTIVE_STYLE if button.active else idle_style
+    style_attr = f' style="{style}"' if style else ""
     data = esc(button.data, quote=True)
     text = esc(button.text)
-    return f'<tg-button type="callback_data" style="{style}" data="{data}">{text}</tg-button>'
+    return f'<tg-button type="callback_data"{style_attr} data="{data}">{text}</tg-button>'
 
 
-def button_row(buttons: Sequence[NavButton]) -> str:
-    """Ряд callback-кнопок в теле сообщения; пустая строка, если кнопок нет."""
+def nav_html(buttons: Sequence[NavButton]) -> str:
+    """Кнопки навигации в теле сообщения (см. NAV_LAYOUT); пусто, если кнопок нет."""
     if not buttons:
         return ""
-    items = "".join(_button(button) for button in buttons)
+    if NAV_LAYOUT == "inline":
+        return _wrap("p", " · ".join(_button(button, NAV_INLINE_STYLE) for button in buttons))
+    items = "".join(_button(button, None) for button in buttons)
     return f'<tg-button-row align="{NAV_ALIGN}">{items}</tg-button-row>'
 
 
@@ -455,7 +462,7 @@ def render_day_html(
         parts.append(_wrap("p", _wrap("b", esc(lead))))
     parts.append(_day_body(day, now, upcoming))
     parts.append(_footer(group, updated_at, now))
-    parts.append(button_row(nav))
+    parts.append(nav_html(nav))
     return "".join(parts)
 
 
@@ -518,5 +525,5 @@ def render_week_html(
         parts.append(_wrap("p", "Эта неделя закончилась."))
     parts.extend(_week_day(day, now, which) for day in shown)
     parts.append(_footer(group, updated_at, now))
-    parts.append(button_row(nav))
+    parts.append(nav_html(nav))
     return "".join(parts)

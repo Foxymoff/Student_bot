@@ -4,6 +4,8 @@
 Рендерит те же случаи, что golden-тесты (tests/rich_fixtures.py), и живые «сегодня» и
 «эта неделя» для группы по реальным данным, отправляет их через sendRichMessage,
 печатает эхо сервера (message.rich_message) и проверяет, применились ли атрибуты.
+Случай live_nav отправляет «сегодня» с кнопками навигации и сразу перерисовывает его
+на завтра через editMessageText(rich_message) — как при нажатии кнопки.
 
     TEST_BOT_TOKEN=... TEST_CHAT_ID=... python scripts/rich_preview.py [случай ...]
 
@@ -14,6 +16,7 @@
 
 import asyncio
 import datetime
+import html as html_lib
 import os
 import re
 import sys
@@ -26,9 +29,11 @@ from aiogram import Bot  # noqa: E402
 from aiogram.types import (  # noqa: E402
     InputRichMessage,
     Message,
+    RichBlockButtons,
     RichBlockDetails,
     RichBlockParagraph,
     RichBlockTable,
+    RichTextButton,
     RichTextDateTime,
     RichTextMarked,
 )
@@ -68,10 +73,26 @@ def _live_week() -> str:
     return render_week_html(days, now=app_now(), group=LIVE_GROUP, which="this")
 
 
-ALL_CASES = {**CASES, "live_today": _live_day, "live_week": _live_week}
+def _live_nav(offset: int) -> str:
+    """Живое сообщение: день today+offset с кнопками навигации (как у бота)."""
+    today = app_today()
+    target = today + datetime.timedelta(days=offset)
+    day = schedule.build_rich_day(schedule.get_lessons_for_date(LIVE_GROUP, target), target)
+    nav = schedule.day_nav(target, LIVE_GROUP, today)
+    return render_day_html(day, now=app_now(), group=LIVE_GROUP, nav=nav)
+
+
+ALL_CASES = {
+    **CASES,
+    "live_today": _live_day,
+    "live_week": _live_week,
+    "live_nav": lambda: _live_nav(0),
+}
 
 
 # ── Проверки по эху сервера ───────────────────────────────
+
+_BUTTON_RE = re.compile(r'<tg-button type="callback_data"(?: style="(\w+)")? data="([^"]*)">')
 
 
 def _walk(blocks: list) -> Iterator:
@@ -132,6 +153,18 @@ def check_echo(html: str, message: Message) -> list[tuple[str, bool]]:
     ]
     time_tags = re.findall(r'<tg-time unix="\d+" format="(\w+)">', html)
     echo_times = [f for f in fragments if isinstance(f, RichTextDateTime)]
+    sent_buttons = [
+        (style or None, html_lib.unescape(data)) for style, data in _BUTTON_RE.findall(html)
+    ]
+    # Кнопки ряда (<tg-button-row>) и кнопки внутри абзаца (RichTextButton).
+    echo_buttons = [
+        (button.style, button.callback_data)
+        for block in blocks
+        if isinstance(block, RichBlockButtons)
+        for button in block.buttons
+    ] + [
+        (f.button.style, f.button.callback_data) for f in fragments if isinstance(f, RichTextButton)
+    ]
     return [
         ("таблицы: is_compact", all(t.is_compact for t in tables)),
         ("таблицы: is_striped", all(t.is_striped for t in tables)),
@@ -154,7 +187,23 @@ def check_echo(html: str, message: Message) -> list[tuple[str, bool]]:
             "mark применился",
             ("<mark>" in html) == any(isinstance(f, RichTextMarked) for f in fragments),
         ),
+        ("кнопки: style и callback_data", sent_buttons == echo_buttons),
     ]
+
+
+def _report(name: str, html: str, message: Message | bool) -> int:
+    """Напечатать эхо и проверки; вернуть число непройденных."""
+    print(f"\n===== {name} ({len(html)} символов) =====")
+    if not isinstance(message, Message):
+        print("  [FAIL] в ответе нет сообщения")
+        return 1
+    if message.rich_message is not None:
+        print(message.rich_message.model_dump_json(indent=2, exclude_none=True))
+    failed = 0
+    for label, ok in check_echo(html, message):
+        failed += not ok
+        print(f"  [{'ok' if ok else 'FAIL'}] {label}")
+    return failed
 
 
 async def _refuse_prod(bot: Bot, token: str) -> str | None:
@@ -193,12 +242,17 @@ async def main(names: list[str]) -> int:
                 rich_message=InputRichMessage(html=html, skip_entity_detection=True),
                 disable_notification=True,
             )
-            print(f"\n===== {name} ({len(html)} символов) =====")
-            if message.rich_message is not None:
-                print(message.rich_message.model_dump_json(indent=2, exclude_none=True))
-            for label, ok in check_echo(html, message):
-                failed += not ok
-                print(f"  [{'ok' if ok else 'FAIL'}] {label}")
+            failed += _report(name, html, message)
+            if name == "live_nav":
+                # Как нажатие «завтра ›»: то же сообщение перерисовывается на месте.
+                await asyncio.sleep(1)
+                edited_html = _live_nav(1)
+                edited = await bot.edit_message_text(
+                    chat_id=int(chat_id),
+                    message_id=message.message_id,
+                    rich_message=InputRichMessage(html=edited_html, skip_entity_detection=True),
+                )
+                failed += _report("live_nav → правка на завтра", edited_html, edited)
             await asyncio.sleep(1)
     finally:
         await bot.session.close()
