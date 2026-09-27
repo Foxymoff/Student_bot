@@ -612,10 +612,12 @@ async def _update_period_header(message: Message, state: FSMContext, label: str)
     msg_id = data.get("last_bot_msg")
     if msg_id:
         try:
+            # Только именованные аргументы: в aiogram 3.x второй позиционный —
+            # business_connection_id, а не chat_id.
             await message.bot.edit_message_text(
                 label,
-                message.chat.id,
-                msg_id,
+                chat_id=message.chat.id,
+                message_id=msg_id,
                 parse_mode=HTML_PARSE_MODE,
             )
         except Exception:
