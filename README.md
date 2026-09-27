@@ -26,7 +26,8 @@ The project also gives group leaders a simple way to publish schedule changes, s
 - Filter lessons by informatics and English subgroups.
 - View another group's schedule without changing the user profile.
 - Select extra classes and show them separately or inside the main schedule.
-- Switch between compact and detailed schedule output.
+- Rich schedule messages (Telegram Rich HTML): one compact table per day, details and teachers in a collapsible block, a live countdown to the next lesson, and the week as an accordion.
+- Switch to the classic plain-message schedule with `/classic` (compact or column layout).
 - Configure personal daily schedule notifications.
 - Receive alerts about schedule changes.
 - Use group leader tools to update lessons quickly.
@@ -129,6 +130,7 @@ On the first run, the bot creates `bot.db` in the project directory unless `DB_D
 | `ADMIN_USER_IDS` | No | Comma-separated Telegram user IDs allowed to use `/admin`. Recommended for production. |
 | `DB_DIR` | No | Directory where `bot.db` is created. Useful for Docker volumes. |
 | `EXTRA_DATA_DIR` | No | Directory with extra class JSON files. Defaults to `data/`. |
+| `RICH_SCHEDULE` | No | `0` sends the schedule in the classic view to everyone. Defaults to `1` (rich view). |
 
 ## Running with Docker
 
@@ -161,6 +163,7 @@ In Docker, the database is stored in the `bot-data` volume because `docker-compo
 | `/groups` | View another group's schedule. |
 | `/settings` | Schedule view, extra classes, daily notifications, and alerts. |
 | `/help` | Contact information for questions and bug reports. |
+| `/classic` | Toggle the classic schedule view (plain messages) for the current user. |
 | `/extra` | Shortcut for extra class settings through the profile flow. |
 | `/admin <password>` | Grant admin access to the current user. |
 | `📅 Расписание` | Schedule for the selected period. |
