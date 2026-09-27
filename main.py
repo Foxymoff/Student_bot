@@ -81,6 +81,7 @@ async def main() -> None:
                 BotCommand(command="profile", description="Учебный профиль"),
                 BotCommand(command="groups", description="Расписание другой группы"),
                 BotCommand(command="settings", description="Настройки"),
+                BotCommand(command="classic", description="Классический вид расписания"),
                 BotCommand(command="help", description="Помощь"),
             ],
             request_timeout=60,

@@ -46,6 +46,32 @@ async def test_add_user_resets_extra_settings_when_group_changes(temp_db):
 
 
 @pytest.mark.asyncio
+async def test_classic_view_defaults_off_and_toggles(temp_db):
+    await database.add_user(1, GROUP_A)
+    assert (await database.get_user(1))["classic_view"] == 0
+
+    await database.update_user_classic_view(1, True)
+    assert (await database.get_user(1))["classic_view"] == 1
+
+    await database.update_user_classic_view(1, False)
+    assert (await database.get_user(1))["classic_view"] == 0
+
+
+@pytest.mark.asyncio
+async def test_init_db_adds_classic_view_to_existing_table(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot.db"
+    monkeypatch.setattr(database, "DB_PATH", db_path)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("CREATE TABLE users (user_id INTEGER PRIMARY KEY, group_name TEXT)")
+        await db.execute("INSERT INTO users VALUES (1, ?)", (GROUP_A,))
+        await db.commit()
+
+    await database.init_db()
+
+    assert (await database.get_user(1))["classic_view"] == 0
+
+
+@pytest.mark.asyncio
 async def test_update_user_daily_notify_disable_clears_last_sent_date(temp_db):
     await database.add_user(1, GROUP_A)
     await database.update_user_daily_notify(1, True, "09:30", False)

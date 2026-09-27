@@ -11,11 +11,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from config import ENG_SUBGROUPS, EXTRA_ENABLED, course_of, has_inf_subgroup
+from config import ENG_SUBGROUPS, EXTRA_ENABLED, RICH_SCHEDULE, course_of, has_inf_subgroup
 from database import (
     add_user,
     get_user,
     update_user_change_alert,
+    update_user_classic_view,
     update_user_compact,
     update_user_daily_notify,
     update_user_daily_notify_target,
@@ -110,8 +111,22 @@ def _help_text() -> str:
     return titled(
         "Помощь",
         "Вопросы, баги и предложения: @foxymoff\n\n"
-        "По проблемам укажите группу, раздел и что произошло.",
+        "По проблемам укажите группу, раздел и что произошло.\n\n"
+        "/classic — классический вид расписания, если новый отображается неправильно. "
+        "Повторная команда возвращает новый вид.",
     )
+
+
+def _classic_view_text(classic: bool) -> str:
+    """Ответ на /classic: какой вид расписания теперь включён."""
+    if classic:
+        body = "Включён классический вид: обычные сообщения с кнопкой «Подробнее»."
+    else:
+        body = "Включён новый вид: подробности раскрываются прямо в сообщении."
+    body += "\n\nПереключить обратно — /classic"
+    if not RICH_SCHEDULE:
+        body += "\n\nСейчас новый вид отключён для всех, расписание приходит в классическом."
+    return titled("Вид расписания", body)
 
 
 def _schedule_view_text() -> str:
@@ -1154,6 +1169,32 @@ async def cmd_help(message: Message, state: FSMContext) -> None:
         state,
         [sent.message_id],
         screen="help",
+        clear_state=True,
+        last_bot_msg=sent.message_id,
+    )
+
+
+@router.message(Command("classic"))
+async def cmd_classic(message: Message, state: FSMContext) -> None:
+    """Команда /classic — переключить классический / новый вид расписания."""
+    user = await get_user(message.from_user.id)
+    if not user:
+        await _send_register_required(message, state)
+        return
+    await delete_user_message(message)
+    classic = not bool(user.get("classic_view"))
+    await update_user_classic_view(message.from_user.id, classic)
+    sent = await message.answer(
+        _classic_view_text(classic),
+        reply_markup=back_kb(),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await replace_ui_messages(
+        message.bot,
+        message.chat.id,
+        state,
+        [sent.message_id],
+        screen="classic",
         clear_state=True,
         last_bot_msg=sent.message_id,
     )
