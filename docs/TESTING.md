@@ -17,7 +17,7 @@ Automated tests currently cover helper-level behavior and selected business logi
 - Extra class keys, option deduplication, date/week selection, and formatting in `extra_schedule.py`.
 - Schedule subgroup filtering, override application, gap filling, text splitting, and formatting in `handlers/schedule.py`.
 - Rich HTML schedule rendering in `render_rich.py`: golden snapshots in `tests/golden/`, lesson status at a given time, pluralization, escaping, a tag whitelist check through `html.parser`, and the message length limit.
-- Choosing between the rich and classic schedule views, falling back to the classic view on `TelegramBadRequest`, old «Подробнее / Свернуть» buttons, and the daily schedule in `handlers/schedule.py` and `scheduler.py`.
+- Choosing between the rich and classic schedule views, falling back to the classic view on `TelegramBadRequest`, old «Подробнее / Свернуть» buttons, day and week navigation that edits the same message, and the daily schedule in `handlers/schedule.py` and `scheduler.py`.
 - Selected group leader helper functions in `handlers/starosta.py`.
 - UI message id normalization in `ui_messages.py`.
 
@@ -64,7 +64,7 @@ UPDATE_GOLDEN=1 pytest tests/test_render_rich.py
 git diff tests/golden
 ```
 
-To see the rich schedule in Telegram, send the same cases to the test bot. The script prints the server echo (`message.rich_message`) and checks that table, cell, and details attributes were applied. It refuses to run with the production bot:
+To see the rich schedule in Telegram, send the same cases to the test bot. The script prints the server echo (`message.rich_message`) and checks that table, cell, and details attributes were applied. The `live_nav` case also edits the sent message to the next day through `editMessageText(rich_message)`. It refuses to run with the production bot:
 
 ```bash
 TEST_BOT_TOKEN=<test bot token> TEST_CHAT_ID=<your Telegram ID> python scripts/rich_preview.py

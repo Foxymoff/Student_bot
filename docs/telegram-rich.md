@@ -24,7 +24,7 @@ Rich Messages появились в Bot API 10.1 (11.06.2026) и расширя�
 - Сворачиваемый блок: `<details open><summary>Заголовок</summary>...блоки...</details>`. `open` значит «раскрыт по умолчанию». Внутри `<details>` можно любое rich-содержимое.
 - Время: `<tg-time unix="1790317200" format="r">в 09:20</tg-time>`. Формат задаётся по регулярке `r|w?[dD]?[tT]?`. `r` выводит время относительно текущего момента («через 8 часов») и не сочетается с другими символами. Текст внутри тега служит фолбэком. Форматы `t`, `T`, `d`, `D` показывают время в часовом поясе телефона, поэтому для времени пар их не используем: у студента в другом регионе расписание съедет.
 - Экранирование: все `<`, `>`, `&` вне тегов заменяются на `&lt;`, `&gt;`, `&amp;`. Поддерживаются все числовые сущности и только именованные `&lt; &gt; &amp; &quot; &apos; &nbsp; &hellip; &mdash; &ndash; &lsquo; &rsquo; &ldquo; &rdquo;`. `html.escape(s, quote=False)` для текста и `quote=True` для атрибутов дают подходящий результат (`'` превращается в числовую `&#x27;`).
-- Кнопки в теле сообщения: блок `<tg-button-row>` (от 1 до 8 кнопок в ряд, стили primary, success, danger, link) и инлайн `<tg-button type="...">`. Точный синтаксис смотри в документации перед использованием.
+- Кнопки в теле сообщения: блок `<tg-button-row align="left|center|right">` (от 1 до 8 кнопок в ряд) и инлайн `<tg-button>` внутри абзаца. Кнопка: `<tg-button type="callback_data" style="primary" data="...">Текст</tg-button>`; типы `url`, `callback_data`, `web_app`, `login_url`, `switch_inline_query*`, `copy_text`, `disabled`; стили `primary`, `success`, `danger`, `link` (только для callback-кнопок). `callback_data` — 1–64 байта. Текст кнопки — только простой текст, кастомные эмодзи и `<tg-time>`. Нажатие callback-кнопки приходит обычным `callback_query`, как у inline-клавиатуры.
 
 ## Если вместо html собирать JSON-блоки
 
@@ -33,8 +33,12 @@ Rich Messages появились в Bot API 10.1 (11.06.2026) и расширя�
 
 ## Кнопки клавиатур
 
-- `style` (цвет) и `icon_custom_emoji_id` у `KeyboardButton` и `InlineKeyboardButton` появились в 9.4. Иконки доступны, только если бот вообще может слать кастомные эмодзи (Premium у владельца бота или купленный на Fragment username).
-- `disabled` у `InlineKeyboardButton` появился в 10.3.
+- `style` (цвет) и `icon_custom_emoji_id` у `KeyboardButton` и `InlineKeyboardButton` появились в 9.4. Стили: `danger` (красный), `success` (зелёный), `primary` (синий); без стиля — оформление приложения. Иконки доступны, только если бот вообще может слать кастомные эмодзи (Premium у владельца бота или купленный на Fragment username).
+- `disabled` (`DisabledButton`) у `InlineKeyboardButton` появился в 10.3: кнопка ничего не делает.
+
+## Эфемерные сообщения
+
+Появились в 10.2, в 10.3 `sendRichMessage` получил `ephemeral_message_parameters`. Это сообщения **в группах**, видимые только одному пользователю и боту; для личных чатов не нужны.
 
 ## Версии aiogram
 
@@ -57,6 +61,8 @@ Rich Messages появились в Bot API 10.1 (11.06.2026) и расширя�
 - `<tg-time format="r">` приходит как `date_time` с `date_time_format: "r"`; текст тега сохраняется как фолбэк.
 - `<mark>`, `<s>`, `<b>`, `<i>` приходят как `marked`, `strikethrough`, `bold`, `italic`; вложенность сохраняется.
 - `<a href>` в абзаце внутри `<details>` приходит как `url`.
+- `<tg-button-row>` приходит как блок `buttons`. У кнопок ряда сохраняются `style="primary"`, `"success"`, `"danger"`, а `style="link"` **отбрасывается** (и в HTML, и в `InputRichBlockButtons`). `link` работает только у `<tg-button>` внутри абзаца (`RichTextButton`); там же работает `type="disabled"`.
+- `editMessageText(..., rich_message=InputRichMessage(...))` перерисовывает rich-сообщение на месте, эхо в ответе такое же, как у `sendRichMessage`. Повторная правка тем же содержимым даёт `Bad Request: message is not modified`.
 
 Проверка своими руками: `scripts/rich_preview.py` (нужны `TEST_BOT_TOKEN` и `TEST_CHAT_ID`, с боевым ботом не работает).
 
