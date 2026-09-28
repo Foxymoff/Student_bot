@@ -163,7 +163,7 @@ In Docker, the database is stored in the `bot-data` volume because `docker-compo
 | `/groups` | View another group's schedule. |
 | `/settings` | Schedule view, daily notifications, and alerts. |
 | `/help` | Contact information for questions and bug reports. |
-| `/classic` | Toggle the classic schedule view (plain messages) for the current user. |
+| `/classic` | Toggle the classic schedule view (plain messages) for the current user. Not shown in the command menu; mentioned in `/help`. |
 | `/links` | Links to campus services. |
 | `/extra` | Shortcut for extra class settings through the profile flow. |
 | `/admin <password>` | Grant admin access to the current user. |
