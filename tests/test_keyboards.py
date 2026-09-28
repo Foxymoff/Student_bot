@@ -113,3 +113,25 @@ def test_reply_accent_buttons_are_primary_and_text_unchanged():
     assert (period.keyboard[0][0].text, period.keyboard[0][0].style) == ("Сегодня", "primary")
     assert period.keyboard[0][1].style is None
     assert period.keyboard[2][0].text == "⬅️ Назад"
+
+
+def test_settings_kb_maps_user_fields_to_labels():
+    """Порядок позиционных аргументов settings_menu_kb: сдвиг ломает подписи меню."""
+    from handlers.start import _settings_kb
+
+    user = {
+        "compact_mode": 1,
+        "daily_notify_enabled": 1,
+        "daily_notify_time": "09:30",
+        "change_alert_enabled": 1,
+        "daily_notify_target": "tomorrow",
+        "classic_view": 1,
+    }
+    labels = [row[0].text for row in _settings_kb(user).inline_keyboard]
+
+    assert labels == [
+        "📱 Вид расписания: Компактный",
+        "🔔 Ежедневное расписание: 🌙 09:30",
+        "🚨 Алерты изменений: вкл.",
+        "⬅️ Главное меню",
+    ]

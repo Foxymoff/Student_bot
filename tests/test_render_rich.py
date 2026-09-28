@@ -593,3 +593,65 @@ def test_no_mark_tag_anywhere():
     """<mark> на iOS в тёмной теме не читается — выделяем жирным."""
     for build in CASES.values():
         assert "<mark>" not in build()
+
+
+def test_fuzz_starosta_overrides_keep_markup_valid():
+    """Случайные изменения старосты (все типы, спецсимволы, длина до лимитов ввода)."""
+    import random
+
+    from handlers import starosta
+
+    rng = random.Random(20260929)
+    nasty = "<b>&amp;\\\"'` [x](y) ==z== $5$ | * _ ~ # @ /cmd https://t.me «ё» — …"
+
+    def text(limit: int) -> str:
+        return "".join(rng.choice(nasty) for _ in range(rng.randint(1, limit)))
+
+    def override() -> dict:
+        kind = rng.choice(["cancel", "room_change", "online", "note", "rename", "add"])
+        value = {
+            "room_change": text(starosta.ROOM_MAX_LEN),
+            "online": rng.choice(["https://", "http://", "t.me/", ""])
+            + text(starosta.ONLINE_LINK_MAX_LEN - 8),
+            "note": text(starosta.NOTE_MAX_LEN),
+            "rename": text(starosta.SUBJECT_MAX_LEN),
+            "add": text(starosta.SUBJECT_MAX_LEN),
+        }.get(kind)
+        return {
+            "lesson_num": rng.randint(1, starosta.MAX_PAIRS),
+            "subgroup": rng.choice([None, 1, 2]),
+            "override_type": kind,
+            "new_value": value,
+        }
+
+    start = datetime.date(2026, 9, 21)
+    for group in GROUPS:
+        keys = [extra_schedule.make_extra_key(x) for x in extra_schedule.get_extra_options(group)]
+        for offset in range(14):
+            date = start + datetime.timedelta(days=offset)
+            overrides = [override() for _ in range(rng.randint(0, 12))]
+            target = schedule.build_rich_day(
+                schedule.get_lessons_for_date(group, date),
+                date,
+                rng.choice([1, 2]),
+                rng.choice([1, 2]),
+                overrides,
+                extra_schedule.get_extras_for_date(group, date, keys),
+            )
+            now = datetime.datetime.combine(
+                date, datetime.time(rng.randint(0, 23), rng.randint(0, 59)), tzinfo=APP_TIMEZONE
+            )
+            nav = schedule.day_nav(date, group, now.date())
+            toggle = schedule.details_toggle(date, group, detailed=False)
+            for detailed in (False, True):
+                html = render_day_html(
+                    target, now=now, group=group, nav=nav, toggle=toggle, detailed=detailed
+                )
+                checker = _Checker()
+                checker.feed(html)
+                checker.close()
+                assert checker.errors == [] and checker.stack == [], (group, date, html[:300])
+                assert "\n" not in html
+                assert len(html) < RICH_TEXT_LIMIT // 4
+            week_html = render_week_html([target] * 7, now=now, group=group)
+            assert len(week_html) < RICH_TEXT_LIMIT // 2
