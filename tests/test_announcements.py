@@ -116,9 +116,9 @@ def test_announcement_text_is_simple_html():
     Parser().feed(text)
 
     assert set(tags) <= {"b"}
-    for must in ("/links", "/classic", "/groups", "/profile", "Подробнее", "Эта неделя", "ОНЛ"):
+    for must in ("/links", "/classic", "Подробнее", "Доп. занятия"):
         assert must in text
-    assert len(text) < 4096
+    assert len(text) < 1000  # коротко: главное из релиза
 
 
 def _admin_message(role: str) -> MagicMock:
