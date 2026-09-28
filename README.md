@@ -25,14 +25,14 @@ The project also gives group leaders a simple way to publish schedule changes, s
 - Detect even and odd academic weeks automatically.
 - Filter lessons by informatics and English subgroups.
 - View another group's schedule without changing the user profile.
-- Select extra classes and show them separately or inside the main schedule.
+- Select extra classes; the selected ones are shown inside the main schedule.
 - Rich schedule messages (Telegram Rich HTML): one compact table per day, details and teachers in a collapsible block, a live countdown to the next lesson, and the week as an accordion. «📅 Расписание» opens today right away; buttons inside the message switch days, weeks, and between the day and week views by editing the same message. The period keyboard is kept for the classic view.
 - Switch to the classic plain-message schedule with `/classic` or in settings; the classic view has compact and column layouts.
 - Configure personal daily schedule notifications.
 - Receive alerts about schedule changes.
 - Use group leader tools to update lessons quickly.
 - Use admin tools to assign and remove group leaders.
-- Open useful campus and sports complex links from Telegram.
+- Open useful campus and sports complex links with `/links`.
 
 ## Supported Groups
 
@@ -161,14 +161,13 @@ In Docker, the database is stored in the `bot-data` volume because `docker-compo
 | `/start` | Initial registration, group selection, and subgroup selection. |
 | `/profile` | Study profile: group, subgroups, and extra classes. |
 | `/groups` | View another group's schedule. |
-| `/settings` | Schedule view, extra classes, daily notifications, and alerts. |
+| `/settings` | Schedule view, daily notifications, and alerts. |
 | `/help` | Contact information for questions and bug reports. |
 | `/classic` | Toggle the classic schedule view (plain messages) for the current user. |
+| `/links` | Links to campus services. |
 | `/extra` | Shortcut for extra class settings through the profile flow. |
 | `/admin <password>` | Grant admin access to the current user. |
-| `📅 Расписание` | Schedule for the selected period. |
-| `📌 Доп. занятия` | Weekly schedule for selected extra classes. |
-| `🔗 Полезные ссылки` | Links to campus services. |
+| `📅 Расписание` | Today's schedule (rich view) or period selection (classic view). |
 | `📋 Староста` | Schedule editing panel for group leaders and admins. |
 | `⚙️ Админ` | Assign and remove group leaders. |
 
@@ -190,7 +189,7 @@ After the first admin is created, `ADMIN_PASSWORD` can be removed and new group 
 ├── docs/                  # testing and project documentation
 ├── handlers/              # command, button, and callback handlers
 │   ├── admin.py           # admin panel
-│   ├── extra.py           # extra classes
+│   ├── extra.py           # choosing extra classes (/extra)
 │   ├── info.py            # informational sections
 │   ├── schedule.py        # main schedule views
 │   ├── starosta.py        # group leader panel
@@ -198,7 +197,7 @@ After the first admin is created, `ADMIN_PASSWORD` can be removed and new group 
 ├── tests/                 # pytest test suite
 ├── config.py              # settings, groups, paths, dictionaries
 ├── database.py            # SQLite schema and queries
-├── extra_schedule.py      # loading and formatting extra classes
+├── extra_schedule.py      # loading and choosing extra classes
 ├── keyboards.py           # reply and inline keyboards
 ├── main.py                # application entry point
 ├── scheduler.py           # background daily notifications

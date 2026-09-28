@@ -19,15 +19,9 @@ REPLY_ACCENT_STYLE: str | None = "primary"
 # ── Reply-клавиатуры ──────────────────────────────────────
 
 
-def main_menu_kb(role: str = "student", show_extra_button: bool = True) -> ReplyKeyboardMarkup:
-    """Главное меню бота (зависит от роли)."""
-    link_row = [KeyboardButton(text="🔗 Полезные ссылки")]
-    if show_extra_button and EXTRA_ENABLED:
-        link_row.append(KeyboardButton(text="📌 Доп. занятия"))
-    rows = [
-        [KeyboardButton(text="📅 Расписание", style=REPLY_ACCENT_STYLE)],
-        link_row,
-    ]
+def main_menu_kb(role: str = "student") -> ReplyKeyboardMarkup:
+    """Главное меню бота (зависит от роли). Полезные ссылки — в меню команд (/links)."""
+    rows = [[KeyboardButton(text="📅 Расписание", style=REPLY_ACCENT_STYLE)]]
     if role == "starosta":
         rows.append([KeyboardButton(text="📋 Староста")])
     elif role == "admin":
@@ -184,20 +178,6 @@ def schedule_collapse_kb(date_iso: str) -> InlineKeyboardMarkup:
     )
 
 
-def extra_detail_kb() -> InlineKeyboardMarkup:
-    """Кнопка 'Подробнее' под кратким расписанием доп. занятий."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="📖 Подробнее", callback_data="extra_detail")]]
-    )
-
-
-def extra_collapse_kb() -> InlineKeyboardMarkup:
-    """Кнопка 'Свернуть' под подробным расписанием доп. занятий."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="📋 Свернуть", callback_data="extra_collapse")]]
-    )
-
-
 def extra_select_kb(
     options: list[dict],
     selected_keys: set[str] | list[str],
@@ -232,16 +212,6 @@ def extra_select_kb(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def extra_display_kb(prefix: str = "extra_display") -> InlineKeyboardMarkup:
-    """Выбор, где показывать доп. занятия."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📅 В расписании", callback_data=f"{prefix}:1")],
-            [InlineKeyboardButton(text="📌 Отдельной кнопкой", callback_data=f"{prefix}:0")],
-        ]
-    )
-
-
 def daily_notify_kb(prefix: str = "daily_notify") -> InlineKeyboardMarkup:
     """Выбор, нужно ли ежедневное уведомление."""
     return InlineKeyboardMarkup(
@@ -271,7 +241,6 @@ def daily_notify_sound_kb(prefix: str = "daily_sound") -> InlineKeyboardMarkup:
 
 def settings_menu_kb(
     compact: bool,
-    extra_in_schedule: bool,
     daily_notify_enabled: bool = False,
     daily_notify_time: str = "08:00",
     change_alert_enabled: bool = False,
@@ -281,7 +250,6 @@ def settings_menu_kb(
     """Главное inline-меню настроек."""
     # Компактный режим и колонки есть только у классического вида.
     view_label = ("Компактный" if compact else "Колонки") if classic else "Новый"
-    extra_label = "в расписании" if extra_in_schedule else "отдельной кнопкой"
     notify_emoji = "🌙" if daily_notify_target == "tomorrow" else "☀️"
     notify_label = f"{notify_emoji} {daily_notify_time}" if daily_notify_enabled else "выкл."
     alert_label = "вкл." if change_alert_enabled else "выкл."
@@ -292,14 +260,6 @@ def settings_menu_kb(
             )
         ]
     ]
-    if EXTRA_ENABLED:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=f"📌 Доп. занятия: {extra_label}", callback_data="settings:extra"
-                )
-            ]
-        )
     rows.extend(
         [
             [
@@ -355,27 +315,6 @@ def settings_view_kb(
         rows.append([InlineKeyboardButton(text=toggle_text, callback_data=toggle_data)])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def settings_extra_display_kb(extra_in_schedule: bool) -> InlineKeyboardMarkup:
-    """Настройки отображения доп. занятий."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=("✅ В расписании" if extra_in_schedule else "В расписании"),
-                    callback_data="settings:extra_display:1",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=("✅ Отдельной кнопкой" if not extra_in_schedule else "Отдельной кнопкой"),
-                    callback_data="settings:extra_display:0",
-                )
-            ],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")],
-        ]
-    )
 
 
 def settings_daily_notify_kb(

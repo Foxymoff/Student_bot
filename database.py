@@ -234,16 +234,6 @@ async def update_user_extra_choices(user_id: int, choices: list[str]) -> None:
         await db.commit()
 
 
-async def update_user_extra_in_schedule(user_id: int, enabled: bool) -> None:
-    """Переключить отображение доп. занятий в основном расписании."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET extra_in_schedule = ? WHERE user_id = ?",
-            (1 if enabled else 0, user_id),
-        )
-        await db.commit()
-
-
 async def update_user_daily_notify(
     user_id: int,
     enabled: bool,

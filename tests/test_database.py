@@ -22,27 +22,23 @@ async def temp_db(tmp_path, monkeypatch):
 async def test_add_user_keeps_extra_settings_for_same_group(temp_db):
     await database.add_user(1, GROUP_A)
     await database.update_user_extra_choices(1, ["extra-a", "extra-b"])
-    await database.update_user_extra_in_schedule(1, True)
 
     await database.add_user(1, GROUP_A)
 
     user = await database.get_user(1)
     assert json.loads(user["extra_choices"]) == ["extra-a", "extra-b"]
-    assert user["extra_in_schedule"] == 1
 
 
 @pytest.mark.asyncio
 async def test_add_user_resets_extra_settings_when_group_changes(temp_db):
     await database.add_user(1, GROUP_A)
     await database.update_user_extra_choices(1, ["extra-a"])
-    await database.update_user_extra_in_schedule(1, True)
 
     await database.add_user(1, GROUP_B)
 
     user = await database.get_user(1)
     assert user["group_name"] == GROUP_B
     assert json.loads(user["extra_choices"]) == []
-    assert user["extra_in_schedule"] == 0
 
 
 @pytest.mark.asyncio

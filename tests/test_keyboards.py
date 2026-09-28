@@ -80,13 +80,29 @@ def test_settings_view_without_rich_only_compact_toggle():
 
 def test_settings_menu_view_label():
     def label(**kwargs):
-        return settings_menu_kb(True, False, **kwargs).inline_keyboard[0][0].text
+        return settings_menu_kb(True, **kwargs).inline_keyboard[0][0].text
 
     assert label(classic=False) == "📱 Вид расписания: Новый"
     assert label(classic=True) == "📱 Вид расписания: Компактный"
 
 
 from keyboards import main_menu_kb, schedule_period_reply_kb  # noqa: E402
+
+
+def test_main_menu_without_links_and_extras():
+    student = [b.text for row in main_menu_kb().keyboard for b in row]
+    admin = [b.text for row in main_menu_kb("admin").keyboard for b in row]
+
+    assert student == ["📅 Расписание"]  # ссылки — в меню команд (/links), кружки — в расписании
+    assert admin == ["📅 Расписание", "📋 Староста", "⚙️ Админ"]
+
+
+def test_settings_menu_has_no_extra_display_row():
+    kb = settings_menu_kb(False)
+
+    assert not any(
+        b.callback_data.startswith("settings:extra") for row in kb.inline_keyboard for b in row
+    )
 
 
 def test_reply_accent_buttons_are_primary_and_text_unchanged():

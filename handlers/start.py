@@ -28,7 +28,6 @@ from database import (
     update_user_daily_notify,
     update_user_daily_notify_target,
     update_user_extra_choices,
-    update_user_extra_in_schedule,
     update_user_subgroups,
 )
 from extra_schedule import get_extra_options, parse_extra_choices
@@ -39,14 +38,12 @@ from keyboards import (
     daily_notify_sound_kb,
     daily_time_back_kb,
     eng_subgroup_select_kb,
-    extra_display_kb,
     extra_select_kb,
     group_select_kb,
     main_menu_kb,
     profile_menu_kb,
     settings_change_alert_kb,
     settings_daily_notify_kb,
-    settings_extra_display_kb,
     settings_menu_kb,
     settings_view_kb,
     subgroup_select_kb,
@@ -82,7 +79,6 @@ class Registration(StatesGroup):
     subgroup_inf = State()
     subgroup_eng = State()
     extra = State()
-    extra_display = State()
     daily_notify = State()
     daily_time = State()
     daily_sound = State()
@@ -101,11 +97,6 @@ class Profile(StatesGroup):
     subgroup_inf = State()
     subgroup_eng = State()
     extra = State()
-
-
-def _show_extra_button(user: dict | None) -> bool:
-    """Нужна ли отдельная кнопка доп. занятий в главном меню."""
-    return not bool(user and user.get("extra_in_schedule"))
 
 
 def _settings_text(user: dict) -> str:
@@ -208,7 +199,6 @@ def _settings_kb(user: dict):
     """Inline-клавиатура общего меню настроек."""
     return settings_menu_kb(
         bool(user.get("compact_mode")),
-        bool(user.get("extra_in_schedule")),
         bool(user.get("daily_notify_enabled")),
         str(user.get("daily_notify_time") or "08:00"),
         bool(user.get("change_alert_enabled")),
@@ -277,7 +267,7 @@ async def _replace_with_main_menu(message: Message, state: FSMContext, user: dic
     role = (user.get("role") or "student") if user else "student"
     sent = await message.answer(
         MAIN_MENU_TEXT,
-        reply_markup=main_menu_kb(role, _show_extra_button(user)),
+        reply_markup=main_menu_kb(role),
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(
@@ -407,7 +397,6 @@ async def _open_profile_extra(
     options = get_extra_options(user["group_name"]) if EXTRA_ENABLED else []
     if not options:
         await update_user_extra_choices(callback.from_user.id, [])
-        await update_user_extra_in_schedule(callback.from_user.id, False)
         await _show_profile_callback(callback, state)
         return False
 
@@ -551,7 +540,6 @@ async def on_subgroup_eng(callback: CallbackQuery, state: FSMContext) -> None:
 
     if not options:
         await update_user_extra_choices(callback.from_user.id, [])
-        await update_user_extra_in_schedule(callback.from_user.id, False)
         inf_part = f"инф. {sg_inf} · " if has_inf else ""
         await callback.answer(
             f"Подгруппы сохранены · {inf_part}англ. {eng_label}",
@@ -610,28 +598,8 @@ async def on_registration_extra(callback: CallbackQuery, state: FSMContext) -> N
 
     ordered_selected = [option["_key"] for option in options if option["_key"] in selected]
     await update_user_extra_choices(callback.from_user.id, ordered_selected)
-
-    if ordered_selected:
-        await state.set_state(Registration.extra_display)
-        await callback.message.edit_text(
-            titled("Доп. занятия", "Где показывать выбранные допы?"),
-            reply_markup=extra_display_kb("reg_extra_display"),
-            parse_mode=HTML_PARSE_MODE,
-        )
-        await callback.answer("Готово · доп. занятия сохранены", show_alert=True)
-        return
-
-    await update_user_extra_in_schedule(callback.from_user.id, False)
+    # Выбранные кружки всегда показываются в основном расписании.
     await callback.answer("Готово · доп. занятия сохранены", show_alert=True)
-    await _ask_registration_daily_notify(callback, state)
-
-
-@router.callback_query(Registration.extra_display, F.data.startswith("reg_extra_display:"))
-async def on_registration_extra_display(callback: CallbackQuery, state: FSMContext) -> None:
-    """Выбор места отображения доп. занятий во время регистрации."""
-    value = int(callback.data.split(":")[-1])
-    await update_user_extra_in_schedule(callback.from_user.id, bool(value))
-    await callback.answer("Готово · настройка сохранена", show_alert=True)
     await _ask_registration_daily_notify(callback, state)
 
 
@@ -986,8 +954,6 @@ async def on_profile_extra_selected(callback: CallbackQuery, state: FSMContext) 
 
     ordered_selected = [option["_key"] for option in options if option["_key"] in selected]
     await update_user_extra_choices(callback.from_user.id, ordered_selected)
-    if not ordered_selected:
-        await update_user_extra_in_schedule(callback.from_user.id, False)
     await _show_profile_callback(callback, state)
     await callback.answer("Готово · доп. занятия обновлены", show_alert=True)
 
@@ -1132,7 +1098,6 @@ async def on_change_sg_eng(callback: CallbackQuery, state: FSMContext) -> None:
             )
         else:
             await update_user_extra_choices(callback.from_user.id, [])
-            await update_user_extra_in_schedule(callback.from_user.id, False)
             await clear_state_keep_ui(state)
             await callback.message.edit_text(
                 titled("Подгруппы сохранены", "Для этой группы доп. занятий нет."),
@@ -1282,44 +1247,17 @@ async def on_toggle_compact(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer(f"Готово · режим {label.lower()}", show_alert=True)
 
 
-@router.callback_query(F.data == "settings:extra")
-async def on_settings_extra(callback: CallbackQuery) -> None:
-    """Открыть настройки отображения доп. занятий."""
-    user = await get_user(callback.from_user.id)
-    if not user:
-        await callback.answer("Открой /start", show_alert=True)
-        return
-    extra_in_schedule = bool(user.get("extra_in_schedule"))
-    await callback.message.edit_text(
-        title("Доп. занятия"),
-        reply_markup=settings_extra_display_kb(extra_in_schedule),
-        parse_mode=HTML_PARSE_MODE,
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("settings:extra_display:"))
-async def on_settings_extra_display(callback: CallbackQuery, state: FSMContext) -> None:
-    """Переключить место отображения доп. занятий."""
-    value = int(callback.data.split(":")[-1])
-    await update_user_extra_in_schedule(callback.from_user.id, bool(value))
+@router.callback_query(F.data.startswith("settings:extra"))
+async def on_settings_extra_removed(callback: CallbackQuery) -> None:
+    """Старые кнопки «Доп. занятия: в расписании / отдельной кнопкой»: настройка убрана."""
     user = await get_user(callback.from_user.id)
     if not user:
         await callback.answer("Открой /start", show_alert=True)
         return
     await callback.message.edit_text(
-        title("Доп. занятия"),
-        reply_markup=settings_extra_display_kb(bool(user.get("extra_in_schedule"))),
-        parse_mode=HTML_PARSE_MODE,
+        _settings_text(user), reply_markup=_settings_kb(user), parse_mode=HTML_PARSE_MODE
     )
-    await register_ui_messages(
-        state,
-        [callback.message.message_id],
-        screen="settings",
-        last_bot_msg=callback.message.message_id,
-    )
-    mode = "в расписании" if value else "отдельной кнопкой"
-    await callback.answer(f"Готово · допы {mode}", show_alert=True)
+    await callback.answer("Кружки теперь всегда в расписании", show_alert=True)
 
 
 @router.callback_query(F.data == "settings:daily")

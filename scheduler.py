@@ -73,9 +73,7 @@ async def _send_daily_schedule(bot: Bot, user: dict, today: datetime.date) -> bo
         header = f"☀️ {title(lead)}"
 
     group_name = user["group_name"]
-    extra_keys = (
-        parse_extra_choices(user.get("extra_choices")) if user.get("extra_in_schedule") else []
-    )
+    extra_keys = parse_extra_choices(user.get("extra_choices"))
 
     # Пустой день (нет ни пар, ни выбранных кружков, ни добавленных старостой
     # пар) не отправляем — без лишнего шума.

@@ -371,7 +371,7 @@ async def handle_admin_back(message: Message, state: FSMContext) -> bool:
     role = (user.get("role") or "student") if user else "student"
     sent = await message.answer(
         MAIN_MENU_TEXT,
-        reply_markup=main_menu_kb(role, not bool(user and user.get("extra_in_schedule"))),
+        reply_markup=main_menu_kb(role),
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(
@@ -495,7 +495,7 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
     await set_user_role(user_id, "admin")
     sent = await message.answer(
         titled("Готово", "Права администратора выданы."),
-        reply_markup=main_menu_kb("admin", not bool(user.get("extra_in_schedule"))),
+        reply_markup=main_menu_kb("admin"),
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(

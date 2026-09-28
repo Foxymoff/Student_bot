@@ -394,16 +394,9 @@ def _format_extra_detailed_blocks(extras: list[dict]) -> list[str]:
     return blocks
 
 
-def _selected_extra_keys(user: dict, include_extras: bool) -> list[str]:
-    """Вернуть выбранные допы, если пользователь включил их в расписание."""
-    if not include_extras:
-        return []
+def _selected_extra_keys(user: dict) -> list[str]:
+    """Выбранные пользователем допы — они всегда показываются в расписании."""
     return parse_extra_choices(user.get("extra_choices"))
-
-
-def _extras_enabled(user: dict) -> bool:
-    """Включены ли допы внутри основного расписания."""
-    return bool(user.get("extra_in_schedule"))
 
 
 def _is_other_schedule(data: dict) -> bool:
@@ -422,7 +415,7 @@ def _schedule_extra_keys(user: dict, data: dict) -> list[str]:
     """Допы показываем только для своей группы, где у пользователя есть выбор."""
     if _is_other_schedule(data):
         return []
-    return _selected_extra_keys(user, _extras_enabled(user))
+    return _selected_extra_keys(user)
 
 
 def _period_header(label: str, data: dict) -> str:
@@ -951,7 +944,7 @@ def _viewer(user: dict, group_name: str) -> tuple[int, int, bool, list[str]]:
     sg_inf, sg_eng = _subgroups(user)
     compact = bool(user.get("compact_mode"))
     own = group_name == user.get("group_name")
-    extra_keys = _selected_extra_keys(user, _extras_enabled(user)) if own else []
+    extra_keys = _selected_extra_keys(user) if own else []
     return sg_inf, sg_eng, compact, extra_keys
 
 

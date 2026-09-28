@@ -14,7 +14,7 @@ Automated tests currently cover helper-level behavior and selected business logi
 - Environment allowlist parsing in `config.py`.
 - User settings, notification settings, and schedule override logic in `database.py`.
 - Extra class choice parsing in `extra_schedule.py`.
-- Extra class keys, option deduplication, date/week selection, and formatting in `extra_schedule.py`.
+- Extra class keys, option deduplication, and selection by date in `extra_schedule.py`.
 - Schedule subgroup filtering, override application, gap filling, text splitting, and formatting in `handlers/schedule.py`.
 - Rich HTML schedule rendering in `render_rich.py`: golden snapshots in `tests/golden/`, lesson status at a given time, pluralization, escaping, a tag whitelist check through `html.parser`, and the message length limit.
 - Choosing between the rich and classic schedule views, falling back to the classic view on `TelegramBadRequest`, old «Подробнее / Свернуть» buttons, day and week navigation that edits the same message, and the daily schedule in `handlers/schedule.py` and `scheduler.py`.

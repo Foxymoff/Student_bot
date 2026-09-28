@@ -466,7 +466,7 @@ def test_day_and_week_nav():
 
 
 def test_extras_only_for_own_group():
-    user = {**USER, "extra_in_schedule": 1, "extra_choices": '["a"]'}
+    user = {**USER, "extra_choices": '["a"]'}  # кружки всегда в расписании
 
     assert schedule._viewer(user, GROUP)[3] == ["a"]
     assert schedule._viewer(user, "МР-25")[3] == []
@@ -639,7 +639,7 @@ async def test_schedule_menu_keeps_period_keyboard_for_classic(state, monkeypatc
 
 
 async def test_other_group_opens_today_without_extras(state, monkeypatch, fixed_data):
-    user = {**USER, "extra_in_schedule": 1, "extra_choices": '["x"]'}
+    user = {**USER, "extra_choices": '["x"]'}
     seen = []
 
     async def get_user(user_id):
@@ -665,3 +665,59 @@ async def test_other_group_opens_today_without_extras(state, monkeypatch, fixed_
     data = await state.get_data()
     assert (data["schedule_context"], data["schedule_group_name"]) == ("other", "МР-25")
     assert data["_nav_stack"] == ["other_group_select"]
+
+
+# ── Кружки только в расписании, ссылки в меню команд ─────
+
+
+async def test_old_extra_button_refreshes_main_menu(state, monkeypatch):
+    from handlers import extra
+
+    async def get_user(user_id):
+        return {**USER, "role": "student"}
+
+    monkeypatch.setattr(extra, "get_user", get_user)
+    message = _menu_message()
+    message.text = "📌 Доп. занятия"
+
+    await extra.on_extra_menu_removed(message, state)
+
+    keyboard = message.answer.await_args.kwargs["reply_markup"].keyboard
+    assert [b.text for row in keyboard for b in row] == ["📅 Расписание"]
+
+
+async def test_old_extra_settings_button_answers(monkeypatch):
+    async def get_user(user_id):
+        return USER
+
+    monkeypatch.setattr(start, "get_user", get_user)
+    callback = MagicMock()
+    callback.data = "settings:extra_display:0"
+    callback.from_user.id = 9
+    callback.answer = AsyncMock()
+    callback.message.edit_text = AsyncMock()
+
+    await start.on_settings_extra_removed(callback)
+
+    callback.answer.assert_awaited_once_with("Кружки теперь всегда в расписании", show_alert=True)
+    kb = callback.message.edit_text.await_args.kwargs["reply_markup"]
+    assert all(
+        not b.callback_data.startswith("settings:extra") for r in kb.inline_keyboard for b in r
+    )
+
+
+async def test_links_command(state, monkeypatch):
+    from handlers import info
+
+    async def get_user(user_id):
+        return USER
+
+    monkeypatch.setattr(info, "get_user", get_user)
+    message = _menu_message()
+    message.text = "/links"
+
+    await info.on_info_screen(message, state)
+
+    header, body = message.answer.await_args_list
+    assert header.args[0] == "<b>Полезные ссылки</b>"
+    assert "sport.innopolis.university" in body.args[0]
