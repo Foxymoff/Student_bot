@@ -3,7 +3,6 @@
 """
 
 from aiogram.types import (
-    DisabledButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -150,14 +149,12 @@ def schedule_detail_kb(date_iso: str) -> InlineKeyboardMarkup:
 
 
 def _nav_inline_button(button: NavButton) -> InlineKeyboardButton:
-    if button.disabled:
-        return InlineKeyboardButton(text=button.text, disabled=DisabledButton())
-    style = "primary" if button.accent else None
+    style = "primary" if button.current else None
     return InlineKeyboardButton(text=button.text, callback_data=button.data, style=style)
 
 
 def schedule_nav_kb(rows: NavRows) -> InlineKeyboardMarkup:
-    """Навигация rich-расписания inline-кнопками: «Сегодня» синяя, текущая — неактивна."""
+    """Inline-кнопки под rich-расписанием: навигация и/или «Подробнее»; текущая — синяя."""
     return InlineKeyboardMarkup(
         inline_keyboard=[[_nav_inline_button(button) for button in row] for row in rows]
     )

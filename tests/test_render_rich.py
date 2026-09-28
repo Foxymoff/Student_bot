@@ -511,52 +511,65 @@ def test_all_real_schedules_render_valid_html():
 # ── Кнопки навигации (живое сообщение) ────────────────────
 
 
-def test_nav_inline_links_accent_and_disabled():
+def test_nav_rows_styles_and_escaping():
     html = nav_html(
         [
-            [
-                NavButton("‹ <вчера>", 'rs:"x"&y'),
-                NavButton("Сегодня", "rs:t", accent=True),
-                NavButton("Эта неделя", disabled=True),
-            ]
+            [NavButton("‹ <вчера>", 'rs:"x"&y'), NavButton("Сегодня", "rs:t", current=True)],
+            [NavButton("Эта неделя", "rs:w")],
         ]
     )
 
-    # Обычные — ссылками, заливка только у акцента, текущая — неактивна.
+    # Ряды больших кнопок; стиль у каждой (без него на iOS в тёмной теме белое на белом),
+    # текущая — success.
     assert html == (
-        '<p><tg-button type="callback_data" style="link" data="rs:&quot;x&quot;&amp;y">'
-        "‹ &lt;вчера&gt;</tg-button> · "
-        '<tg-button type="callback_data" style="primary" data="rs:t">Сегодня</tg-button> · '
-        '<tg-button type="disabled">Эта неделя</tg-button></p>'
+        '<tg-button-row align="center">'
+        '<tg-button type="callback_data" style="primary" data="rs:&quot;x&quot;&amp;y">'
+        "‹ &lt;вчера&gt;</tg-button>"
+        '<tg-button type="callback_data" style="success" data="rs:t">Сегодня</tg-button>'
+        "</tg-button-row>"
+        '<tg-button-row align="center">'
+        '<tg-button type="callback_data" style="primary" data="rs:w">Эта неделя</tg-button>'
+        "</tg-button-row>"
     )
     check_html(html)
     assert nav_html([]) == nav_html([[]]) == ""
 
 
-def test_nav_rows_become_separate_lines():
-    html = nav_html([[NavButton("a", "rs:a")], [NavButton("b", "rs:b")]])
-
-    assert html.count("<p>") == 2
-    check_html(html)
-
-
-def test_nav_row_layout(monkeypatch):
-    monkeypatch.setattr(render_rich, "NAV_LAYOUT", "row")
-
-    html = nav_html([[NavButton("‹ Чт, 24", "rs:a"), NavButton("Сегодня", "rs:b", accent=True)]])
-
-    # В ряду link отбрасывается сервером — обычные primary, акцент success.
-    assert html == (
-        '<tg-button-row align="center">'
-        '<tg-button type="callback_data" style="primary" data="rs:a">‹ Чт, 24</tg-button>'
-        '<tg-button type="callback_data" style="success" data="rs:b">Сегодня</tg-button>'
-        "</tg-button-row>"
+@pytest.mark.parametrize(("style", "attr"), [("link", "link"), ("pill", "primary")])
+def test_details_toggle_under_table(style, attr):
+    toggle = NavButton("Подробнее", "rs:f")
+    nav = [[NavButton("Сегодня", "rs:t", current=True)]]
+    html = render_day_html(
+        day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=nav, toggle=toggle, toggle_style=style
     )
+
     check_html(html)
+    # Сразу под таблицей, до подписи группы и рядов навигации.
+    assert (
+        f'</table><p><tg-button type="callback_data" style="{attr}" data="rs:f">Подробнее'
+        f"</tg-button></p><footer>{GROUP}</footer><tg-button-row"
+    ) in html
+
+
+def test_details_toggle_style_from_constant(monkeypatch):
+    toggle = NavButton("Подробнее", "rs:f")
+    monkeypatch.setattr(render_rich, "DETAILS_TOGGLE", "pill")
+
+    html = render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, toggle=toggle)
+
+    assert 'style="primary" data="rs:f">Подробнее' in html
+
+
+def test_details_toggle_skipped_without_table():
+    toggle = NavButton("Подробнее", "rs:f")
+
+    html = render_day_html(Day(SUNDAY), now=at(26, 18, 0), group=GROUP, toggle=toggle)
+
+    assert "Подробнее" not in html
 
 
 def test_nav_goes_last_in_day_and_week():
-    buttons = [[NavButton("Сегодня", disabled=True)], [NavButton("Вся неделя", "rs:w")]]
+    buttons = [[NavButton("Сегодня", "rs:t", current=True)], [NavButton("Эта неделя", "rs:w")]]
     pages = [
         render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons),
         render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons, detailed=True),
@@ -566,12 +579,6 @@ def test_nav_goes_last_in_day_and_week():
     for html in pages:
         check_html(html)
         assert html.endswith(f"<footer>{GROUP}</footer>{nav_html(buttons)}")
-
-
-def test_week_lead_for_other_group():
-    html = render_week_html(week(MONDAY), now=at(25, 1, 22), group="МР-25", lead="МР-25")
-
-    assert html.startswith("<p><b>МР-25</b></p><h3>Неделя")
 
 
 def test_past_week_is_collapsed_without_ended_note():

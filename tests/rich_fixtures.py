@@ -156,13 +156,30 @@ ALL_CANCELLED = [
 
 
 def day_html(
-    date: datetime.date, now: datetime.datetime, *, nav=(), detailed: bool = False, **kwargs
+    date: datetime.date,
+    now: datetime.datetime,
+    *,
+    nav=(),
+    detailed: bool = False,
+    toggle_style: str | None = None,
+    **kwargs,
 ) -> str:
-    """День так же, как собирает бот: с ближайшим учебным днём, если он нужен."""
+    """День так же, как собирает бот: с ближайшим учебным днём, если он нужен.
+
+    toggle_style — «Подробнее» / «Кратко» под таблицей ("link" или "pill").
+    """
     target = day(date, **kwargs)
     nearest = upcoming(date) if render_rich.needs_upcoming(target, now) else None
+    toggle = schedule.details_toggle(date, GROUP, detailed=detailed) if toggle_style else None
     return render_day_html(
-        target, now=now, group=GROUP, upcoming=nearest, nav=nav, detailed=detailed
+        target,
+        now=now,
+        group=GROUP,
+        upcoming=nearest,
+        nav=nav,
+        detailed=detailed,
+        toggle=toggle,
+        toggle_style=toggle_style,
     )
 
 
@@ -206,7 +223,7 @@ CASES: dict[str, Callable[[], str]] = {
     "week_this_sunday": lambda: week_html(MONDAY, at(27, 12, 0), "this"),
     "week_next": lambda: week_html(MONDAY, at(18, 12, 0), "next"),
     "week_month_boundary": lambda: week_html(datetime.date(2026, 9, 28), at(30, 12, 0), "this"),
-    # Живое сообщение: кнопки навигации в теле.
+    # Живое сообщение: ряды кнопок навигации в теле.
     "day_with_nav": lambda: day_html(
         FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY)
     ),
@@ -216,13 +233,29 @@ CASES: dict[str, Callable[[], str]] = {
     "week_this_with_nav": lambda: week_html(
         MONDAY, at(25, 1, 22), "this", nav=schedule.week_nav(MONDAY, GROUP, FRIDAY)
     ),
-    "full_with_nav": lambda: _full(
-        FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY, detailed=True)
-    ),
     "week_past_with_nav": lambda: week_html(
         datetime.date(2026, 9, 14),
         at(25, 1, 22),
         "past",
         nav=schedule.week_nav(datetime.date(2026, 9, 14), GROUP, FRIDAY),
+    ),
+    # «Подробнее» / «Кратко» под таблицей: ссылкой и маленькой синей кнопкой.
+    "day_toggle_link": lambda: day_html(
+        FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY), toggle_style="link"
+    ),
+    "day_toggle_pill": lambda: day_html(
+        FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY), toggle_style="pill"
+    ),
+    "full_toggle_link": lambda: _full(
+        FRIDAY,
+        at(25, 1, 22),
+        nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY, detailed=True),
+        toggle_style="link",
+    ),
+    "full_toggle_pill": lambda: _full(
+        FRIDAY,
+        at(25, 1, 22),
+        nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY, detailed=True),
+        toggle_style="pill",
     ),
 }

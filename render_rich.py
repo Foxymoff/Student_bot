@@ -46,20 +46,19 @@ LOOKAHEAD_DAYS = 14
 
 WEEKDAY_ABBR: tuple[str, ...] = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
-# Навигация кнопками в теле сообщения.
-# - "inline" (по умолчанию) — кнопки в строке текста через « · »: обычные — ссылками
-#   (style="link"), заливка только у кнопки-акцента («Сегодня», style="primary").
-#   Текущий день или неделя — неактивная кнопка (type="disabled").
-# - "row" — ряд кнопок (<tg-button-row>). В ряду style="link" сервер отбрасывает
-#   (проверено по эху), а кнопки без стиля на iOS в тёмной теме белые с белым текстом,
-#   поэтому там обычные кнопки primary, акцент success.
-NAV_LAYOUT: Literal["row", "inline"] = "inline"
-NAV_SEPARATOR = " · "
-NAV_LINK_STYLE = "link"
-NAV_ACCENT_STYLE = "primary"
+# Навигация — ряды больших кнопок в теле сообщения (<tg-button-row>). Стиль у каждой
+# кнопки: без него на iOS в тёмной теме кнопка белая с белым текстом. Обычные — primary,
+# текущая (открыт сегодняшний день / текущая неделя) — success, её нажатие обновляет
+# сообщение. style="link" в ряду сервер отбрасывает (проверено по эху).
 NAV_ROW_ALIGN = "center"
-NAV_ROW_STYLE = "primary"
-NAV_ROW_ACCENT_STYLE = "success"
+NAV_STYLE = "primary"
+NAV_CURRENT_STYLE = "success"
+
+# Где переключатель «Подробнее» / «Кратко»: "keyboard" — inline-кнопкой под сообщением
+# (её ставит бот), "link" — ссылкой под таблицей, "pill" — маленькой синей кнопкой под
+# таблицей. Ссылка и «таблетка» — кнопки внутри абзаца: style="link" работает только там.
+DETAILS_TOGGLE: Literal["keyboard", "link", "pill"] = "link"
+TOGGLE_STYLES: dict[str, str] = {"link": "link", "pill": "primary"}
 
 WeekKind = Literal["this", "next", "past"]
 
@@ -96,15 +95,14 @@ class Day:
 
 @dataclass(frozen=True)
 class NavButton:
-    """Кнопка навигации: callback_data до 64 байт; accent — с заливкой, disabled — неактивна."""
+    """Кнопка навигации: callback_data до 64 байт; current — открытый сейчас день/неделя."""
 
     text: str
-    data: str = ""
-    accent: bool = False
-    disabled: bool = False
+    data: str
+    current: bool = False
 
 
-# Ряды кнопок навигации: каждый ряд — отдельный <tg-button-row> (или абзац).
+# Ряды кнопок навигации: каждый ряд — отдельный <tg-button-row>.
 NavRows = Sequence[Sequence[NavButton]]
 
 
@@ -383,32 +381,27 @@ def _day_table(day: Day, now: datetime.datetime, *, detailed: bool, links: bool 
     return "".join(html_parts)
 
 
-def _button(button: NavButton, style: str | None) -> str:
-    text = esc(button.text)
-    if button.disabled:
-        return f'<tg-button type="disabled">{text}</tg-button>'
-    style_attr = f' style="{style}"' if style else ""
+def _button(button: NavButton, style: str) -> str:
     data = esc(button.data, quote=True)
-    return f'<tg-button type="callback_data"{style_attr} data="{data}">{text}</tg-button>'
+    text = esc(button.text)
+    return f'<tg-button type="callback_data" style="{style}" data="{data}">{text}</tg-button>'
 
 
 def _nav_row(buttons: Sequence[NavButton]) -> str:
-    if NAV_LAYOUT == "inline":
-        items = [
-            _button(button, NAV_ACCENT_STYLE if button.accent else NAV_LINK_STYLE)
-            for button in buttons
-        ]
-        return _wrap("p", NAV_SEPARATOR.join(items))
-    items = [
-        _button(button, NAV_ROW_ACCENT_STYLE if button.accent else NAV_ROW_STYLE)
-        for button in buttons
-    ]
-    return f'<tg-button-row align="{NAV_ROW_ALIGN}">{"".join(items)}</tg-button-row>'
+    items = "".join(
+        _button(button, NAV_CURRENT_STYLE if button.current else NAV_STYLE) for button in buttons
+    )
+    return f'<tg-button-row align="{NAV_ROW_ALIGN}">{items}</tg-button-row>'
 
 
 def nav_html(rows: NavRows) -> str:
-    """Кнопки навигации в теле сообщения (см. NAV_LAYOUT); пусто, если кнопок нет."""
+    """Ряды кнопок навигации в теле сообщения; пусто, если кнопок нет."""
     return "".join(_nav_row(row) for row in rows if row)
+
+
+def toggle_html(button: NavButton, style: Literal["link", "pill"]) -> str:
+    """«Подробнее» / «Кратко» под таблицей: ссылкой или маленькой синей кнопкой."""
+    return _wrap("p", _button(button, TOGGLE_STYLES[style]))
 
 
 # ── День ──────────────────────────────────────────────────
@@ -476,17 +469,23 @@ def render_day_html(
     lead: str | None = None,
     nav: NavRows = (),
     detailed: bool = False,
+    toggle: NavButton | None = None,
+    toggle_style: Literal["link", "pill"] | None = None,
 ) -> str:
     """Расписание на день: одна таблица, краткая или подробная (detailed).
 
     upcoming — ближайший учебный день после ``day`` (для пустого дня и для «сегодня»
     после последней пары, см. needs_upcoming); lead — подпись над заголовком
-    (например, «Расписание на сегодня» в ежедневной рассылке); nav — кнопки в конце.
+    (например, «Расписание на сегодня» в ежедневной рассылке); nav — кнопки в конце;
+    toggle — «Подробнее» / «Кратко» под таблицей (стиль — toggle_style или DETAILS_TOGGLE).
     """
     parts = []
     if lead:
         parts.append(_wrap("p", _wrap("b", esc(lead))))
     parts.append(_day_body(day, now, upcoming, detailed=detailed))
+    if toggle is not None and day.lessons:
+        style = toggle_style or (DETAILS_TOGGLE if DETAILS_TOGGLE in TOGGLE_STYLES else "link")
+        parts.append(toggle_html(toggle, style))
     parts.append(_footer(group, updated_at, now))
     parts.append(nav_html(nav))
     return "".join(parts)
@@ -532,19 +531,18 @@ def render_week_html(
     updated_at: datetime.datetime | None = None,
     which: WeekKind = "this",
     nav: NavRows = (),
-    lead: str | None = None,
 ) -> str:
     """Неделя аккордеоном: день — свёрнутый или раскрытый details.
 
     which: "this" — текущая неделя, "next" — будущая (всё раскрыто),
-    "past" — прошедшая (всё свёрнуто); nav — кнопки в конце; lead — подпись сверху.
+    "past" — прошедшая (всё свёрнуто); nav — кнопки в конце.
     """
     shown = [
         day
         for day in sorted(days, key=lambda d: d.date)
         if day.date.weekday() < 5 or not WEEKEND_ONLY_WITH_LESSONS or day.lessons
     ]
-    parts = [_wrap("p", _wrap("b", esc(lead)))] if lead else []
+    parts = []
     if shown:
         parts.append(_heading(f"Неделя {_date_range(shown[0].date, shown[-1].date)}"))
     today = _local_now(now).date()

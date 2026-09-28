@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aiogram import Bot  # noqa: E402
 from aiogram.types import (  # noqa: E402
+    InlineKeyboardMarkup,
     InputRichMessage,
     Message,
     RichBlockButtons,
@@ -40,7 +41,13 @@ from aiogram.types import (  # noqa: E402
 
 from config import app_now, app_today  # noqa: E402
 from handlers import schedule  # noqa: E402
-from render_rich import has_lessons, render_day_html, render_week_html  # noqa: E402
+from keyboards import schedule_nav_kb  # noqa: E402
+from render_rich import (  # noqa: E402
+    has_lessons,
+    needs_upcoming,
+    render_day_html,
+    render_week_html,
+)
 from tests.rich_fixtures import CASES  # noqa: E402
 
 LIVE_GROUP = os.getenv("PREVIEW_GROUP", "ИСП-25-2")
@@ -79,7 +86,51 @@ def _live_nav(offset: int) -> str:
     target = today + datetime.timedelta(days=offset)
     day = schedule.build_rich_day(schedule.get_lessons_for_date(LIVE_GROUP, target), target)
     nav = schedule.day_nav(target, LIVE_GROUP, today)
-    return render_day_html(day, now=app_now(), group=LIVE_GROUP, nav=nav)
+    toggle = schedule.details_toggle(target, LIVE_GROUP, detailed=False)
+    return render_day_html(day, now=app_now(), group=LIVE_GROUP, nav=nav, toggle=toggle)
+
+
+TOGGLE_VARIANTS = {
+    "keyboard": "Вариант 1 · «Подробнее» inline-кнопкой под сообщением",
+    "link": "Вариант 2 · «Подробнее» ссылкой под таблицей",
+    "pill": "Вариант 3 · «Подробнее» маленькой синей кнопкой под таблицей",
+}
+
+
+def _toggle_variants() -> list[tuple[str, str, InlineKeyboardMarkup | None]]:
+    """Сегодняшний день по реальным данным в трёх вариантах «Подробнее» — кратко и подробно."""
+    today = app_today()
+    day = schedule.build_rich_day(schedule.get_lessons_for_date(LIVE_GROUP, today), today)
+    upcoming = None
+    if needs_upcoming(day, app_now()):
+        for offset in range(1, 15):
+            date = today + datetime.timedelta(days=offset)
+            candidate = schedule.build_rich_day(
+                schedule.get_lessons_for_date(LIVE_GROUP, date), date
+            )
+            if has_lessons(candidate):
+                upcoming = candidate
+                break
+    result = []
+    for detailed in (False, True):
+        nav = schedule.day_nav(today, LIVE_GROUP, today, detailed=detailed)
+        toggle = schedule.details_toggle(today, LIVE_GROUP, detailed=detailed)
+        for variant, caption in TOGGLE_VARIANTS.items():
+            in_body = variant != "keyboard"
+            html = render_day_html(
+                day,
+                now=app_now(),
+                group=LIVE_GROUP,
+                upcoming=upcoming,
+                nav=nav,
+                detailed=detailed,
+                toggle=toggle if in_body else None,
+                toggle_style=variant if in_body else None,
+            )
+            markup = None if in_body else schedule_nav_kb([[toggle]])
+            view = "подробный вид" if detailed else "краткий вид"
+            result.append((f"{caption} · {view}", html, markup))
+    return result
 
 
 # Подпись над снимком: какой момент изображён. Относительное время в <tg-time>
@@ -104,11 +155,10 @@ CAPTIONS: dict[str, str] = {
     "full_with_changes": "Подробно · отмена, смена аудитории, примечание, онлайн",
     "full_added_and_renamed": "Подробно · староста переименовал пару и добавил 4-ю",
     "full_all_cancelled": "Подробно · все пары отменены",
-    "day_with_nav": "Кнопки · открыт сегодняшний день (пт 25.09): «Сегодня» неактивна",
-    "day_tomorrow_with_nav": "Кнопки · открыт другой день (сб 26.09): «Сегодня» с заливкой",
-    "full_with_nav": "Кнопки · подробный вид сегодняшнего дня",
-    "week_this_with_nav": "Кнопки · текущая неделя: «Эта неделя» неактивна",
-    "week_past_with_nav": "Кнопки · прошлая неделя: «Эта неделя» — ссылка",
+    "day_with_nav": "Кнопки · открыт сегодняшний день (пт 25.09): «Сегодня» выделена",
+    "day_tomorrow_with_nav": "Кнопки · открыт другой день (сб 26.09)",
+    "week_this_with_nav": "Кнопки · текущая неделя: «Эта неделя» выделена",
+    "week_past_with_nav": "Кнопки · прошлая неделя",
     "week_this_friday": "Неделя · пт 25.09, 01:22",
 }
 CAPTION_NOTE = "«через…/…назад» считается от настоящего времени"
@@ -118,6 +168,8 @@ ALL_CASES = {
     "live_today": _live_day,
     "live_week": _live_week,
     "live_nav": lambda: _live_nav(0),
+    # Три варианта «Подробнее» (6 сообщений) — отправляются отдельно, с клавиатурой.
+    "toggle_variants": lambda: "",
 }
 
 
@@ -152,6 +204,8 @@ def _plain(text) -> str:
         return text
     if isinstance(text, list):
         return "".join(_plain(part) for part in text)
+    if isinstance(text, RichTextButton):
+        return _plain(text.button.text)
     return _plain(getattr(text, "text", None))
 
 
@@ -218,7 +272,8 @@ def check_echo(html: str, message: Message) -> list[tuple[str, bool]]:
             "mark применился",
             ("<mark>" in html) == any(isinstance(f, RichTextMarked) for f in fragments),
         ),
-        ("кнопки: style и callback_data", sent_buttons == echo_buttons),
+        # Порядок разный: кнопки в абзаце идут в разметке раньше рядов навигации.
+        ("кнопки: style и callback_data", sorted(sent_buttons) == sorted(echo_buttons)),
         ("неактивные кнопки", html.count('<tg-button type="disabled">') == echo_disabled),
     ]
 
@@ -268,6 +323,19 @@ async def main(names: list[str]) -> int:
             print(f"Отказ: {reason}", file=sys.stderr)
             return 2
         for name in names or list(ALL_CASES):
+            if name == "toggle_variants":
+                for caption, html, markup in _toggle_variants():
+                    caption_html = html_lib.escape(caption, quote=False)
+                    html = f"<p><i>{caption_html}</i></p>{html}"
+                    message = await bot.send_rich_message(
+                        chat_id=int(chat_id),
+                        rich_message=InputRichMessage(html=html, skip_entity_detection=True),
+                        reply_markup=markup,
+                        disable_notification=True,
+                    )
+                    failed += _report(caption, html, message)
+                    await asyncio.sleep(1)
+                continue
             html = ALL_CASES[name]()
             if name in CAPTIONS:
                 caption = html_lib.escape(f"{CAPTIONS[name]} · {CAPTION_NOTE}", quote=False)
