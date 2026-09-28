@@ -603,6 +603,17 @@ async def on_registration_extra(callback: CallbackQuery, state: FSMContext) -> N
     await _ask_registration_daily_notify(callback, state)
 
 
+@router.callback_query(F.data.startswith("reg_extra_display:"))
+async def on_registration_extra_display_removed(callback: CallbackQuery, state: FSMContext) -> None:
+    """Старые кнопки убранного шага «Где показывать допы?» — продолжить регистрацию.
+
+    Кто был на этом шаге во время обновления, не застрянет: FSM переживает рестарт,
+    а состояния Registration.extra_display больше нет, поэтому без фильтра по состоянию.
+    """
+    await callback.answer("Кружки теперь всегда в расписании")
+    await _ask_registration_daily_notify(callback, state)
+
+
 @router.callback_query(Registration.daily_notify, F.data.startswith("reg_daily_notify:"))
 async def on_registration_daily_notify(callback: CallbackQuery, state: FSMContext) -> None:
     """Выбор ежедневного уведомления во время регистрации."""

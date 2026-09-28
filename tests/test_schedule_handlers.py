@@ -855,3 +855,23 @@ async def test_daily_notify_uses_remembered_mode(daily):
 
     html = bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert '<td valign="top">' in html
+
+
+# ── Переход со старой версии: кнопки убранного шага регистрации ──
+
+
+async def test_old_registration_extra_display_button_continues(state, monkeypatch):
+    asked = []
+
+    async def ask_daily(callback, state):
+        asked.append(callback.data)
+
+    monkeypatch.setattr(start, "_ask_registration_daily_notify", ask_daily)
+    # Состояние, оставшееся в fsm.db от старой версии: такого State больше нет.
+    await state.set_state("Registration:extra_display")
+    callback = _callback("reg_extra_display:0")
+
+    await start.on_registration_extra_display_removed(callback, state)
+
+    callback.answer.assert_awaited_once_with("Кружки теперь всегда в расписании")
+    assert asked == ["reg_extra_display:0"]
