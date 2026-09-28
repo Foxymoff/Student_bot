@@ -118,8 +118,8 @@ class _Checker(HTMLParser):
                 self.errors.append("tg-button не callback_data")
             elif len(attrs_map["data"].encode()) > 64:
                 self.errors.append("callback_data длиннее 64 байт")
-            if self.stack[-1:] not in (["tg-button-row"], ["p"]):
-                self.errors.append("tg-button вне tg-button-row и абзаца")
+            if self.stack[-1:] not in (["tg-button-row"], ["p"], ["td"]):
+                self.errors.append("tg-button вне tg-button-row, абзаца и ячейки")
         if tag not in VOID_TAGS:
             self.stack.append(tag)
 
@@ -544,11 +544,13 @@ def test_details_toggle_under_table(style, attr):
     )
 
     check_html(html)
-    # Сразу под таблицей, до подписи группы и рядов навигации.
+    # Сразу под таблицей одной строкой: слева кнопка, справа группа; подписи внизу нет.
     assert (
-        f'</table><p><tg-button type="callback_data" style="{attr}" data="rs:f">Подробнее'
-        f"</tg-button></p><footer>{GROUP}</footer><tg-button-row"
+        '</table><table compact><tr><td><tg-button type="callback_data" '
+        f'style="{attr}" data="rs:f">Подробнее</tg-button></td>'
+        f'<td align="right"><i>{GROUP}</i></td></tr></table><tg-button-row'
     ) in html
+    assert "<footer>" not in html
 
 
 def test_details_toggle_style_from_constant(monkeypatch):

@@ -59,6 +59,8 @@ NAV_CURRENT_STYLE = "success"
 # таблицей. Ссылка и «таблетка» — кнопки внутри абзаца: style="link" работает только там.
 DETAILS_TOGGLE: Literal["keyboard", "link", "pill"] = "link"
 TOGGLE_STYLES: dict[str, str] = {"link": "link", "pill": "primary"}
+# Строка «Подробнее … группа» под таблицей дня (группа — справа, вместо подписи внизу).
+TOGGLE_ROW_ATTRS = "compact"
 
 WeekKind = Literal["this", "next", "past"]
 
@@ -399,9 +401,16 @@ def nav_html(rows: NavRows) -> str:
     return "".join(_nav_row(row) for row in rows if row)
 
 
-def toggle_html(button: NavButton, style: Literal["link", "pill"]) -> str:
-    """«Подробнее» / «Кратко» под таблицей: ссылкой или маленькой синей кнопкой."""
-    return _wrap("p", _button(button, TOGGLE_STYLES[style]))
+def toggle_row_html(button: NavButton, style: Literal["link", "pill"], footer_text: str) -> str:
+    """Строка под таблицей: слева «Подробнее» / «Кратко», справа группа.
+
+    Выровнять части одного абзаца влево и вправо нельзя — поэтому таблица из одной
+    строки без полос. Кнопка в ячейке сохраняется (проверено по эху сервера).
+    """
+    cells = _td(_button(button, TOGGLE_STYLES[style])) + _td(
+        _wrap("i", esc(footer_text)), align="right"
+    )
+    return f"<table {TOGGLE_ROW_ATTRS}><tr>{cells}</tr></table>"
 
 
 # ── День ──────────────────────────────────────────────────
@@ -447,7 +456,7 @@ def _day_body(day: Day, now: datetime.datetime, upcoming: Day | None, *, detaile
     return "".join(parts)
 
 
-def _footer(group: str, updated_at: datetime.datetime | None, now: datetime.datetime) -> str:
+def _footer_text(group: str, updated_at: datetime.datetime | None, now: datetime.datetime) -> str:
     """«{группа} · данные на HH:MM»; без времени обновления — только группа."""
     text = group
     if updated_at is not None:
@@ -456,7 +465,11 @@ def _footer(group: str, updated_at: datetime.datetime | None, now: datetime.date
             text += f" · данные на {local:%H:%M}"
         else:
             text += f" · данные на {local:%d.%m, %H:%M}"
-    return _wrap("footer", esc(text))
+    return text
+
+
+def _footer(group: str, updated_at: datetime.datetime | None, now: datetime.datetime) -> str:
+    return _wrap("footer", esc(_footer_text(group, updated_at, now)))
 
 
 def render_day_html(
@@ -477,16 +490,19 @@ def render_day_html(
     upcoming — ближайший учебный день после ``day`` (для пустого дня и для «сегодня»
     после последней пары, см. needs_upcoming); lead — подпись над заголовком
     (например, «Расписание на сегодня» в ежедневной рассылке); nav — кнопки в конце;
-    toggle — «Подробнее» / «Кратко» под таблицей (стиль — toggle_style или DETAILS_TOGGLE).
+    toggle — «Подробнее» / «Кратко» под таблицей, напротив группы (стиль — toggle_style
+    или DETAILS_TOGGLE); без него группа — подписью внизу.
     """
     parts = []
     if lead:
         parts.append(_wrap("p", _wrap("b", esc(lead))))
     parts.append(_day_body(day, now, upcoming, detailed=detailed))
     if toggle is not None and day.lessons:
+        # «Подробнее» слева, группа справа — одной строкой под таблицей, без подписи внизу.
         style = toggle_style or (DETAILS_TOGGLE if DETAILS_TOGGLE in TOGGLE_STYLES else "link")
-        parts.append(toggle_html(toggle, style))
-    parts.append(_footer(group, updated_at, now))
+        parts.append(toggle_row_html(toggle, style, _footer_text(group, updated_at, now)))
+    else:
+        parts.append(_footer(group, updated_at, now))
     parts.append(nav_html(nav))
     return "".join(parts)
 
