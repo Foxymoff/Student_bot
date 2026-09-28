@@ -116,7 +116,8 @@ def test_announcement_text_is_simple_html():
     Parser().feed(text)
 
     assert set(tags) <= {"b"}
-    assert "/links" in text and "/classic" in text
+    for must in ("/links", "/classic", "/groups", "/profile", "Подробнее", "Эта неделя", "ОНЛ"):
+        assert must in text
     assert len(text) < 4096
 
 
