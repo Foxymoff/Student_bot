@@ -63,6 +63,7 @@ async def init_db() -> None:
                 compact_mode INTEGER DEFAULT 0,
                 classic_view INTEGER DEFAULT 0,
                 schedule_detailed INTEGER DEFAULT 0,
+                last_announcement TEXT,
                 extra_choices TEXT DEFAULT '[]',
                 extra_in_schedule INTEGER DEFAULT 0,
                 daily_notify_enabled INTEGER DEFAULT 0,
@@ -88,6 +89,7 @@ async def init_db() -> None:
             ("compact_mode", "INTEGER DEFAULT 0"),
             ("classic_view", "INTEGER DEFAULT 0"),
             ("schedule_detailed", "INTEGER DEFAULT 0"),
+            ("last_announcement", "TEXT"),
             ("extra_choices", "TEXT DEFAULT '[]'"),
             ("extra_in_schedule", "INTEGER DEFAULT 0"),
             ("daily_notify_enabled", "INTEGER DEFAULT 0"),
@@ -231,6 +233,28 @@ async def update_user_schedule_detailed(user_id: int, detailed: bool) -> None:
         await db.execute(
             "UPDATE users SET schedule_detailed = ? WHERE user_id = ?",
             (1 if detailed else 0, user_id),
+        )
+        await db.commit()
+
+
+async def get_users_without_announcement(announcement_id: str) -> list[dict]:
+    """Пользователи, которым ещё не отправлена сводка обновления announcement_id."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM users WHERE last_announcement IS NULL OR last_announcement != ?",
+            (announcement_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def mark_announcement_sent(user_id: int, announcement_id: str) -> None:
+    """Отметить, что сводка announcement_id пользователю отправлена (повторно не шлём)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET last_announcement = ? WHERE user_id = ?",
+            (announcement_id, user_id),
         )
         await db.commit()
 

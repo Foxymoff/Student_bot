@@ -369,6 +369,20 @@ def alert_delete_kb() -> InlineKeyboardMarkup:
     )
 
 
+def announce_confirm_kb(pending: int) -> InlineKeyboardMarkup:
+    """Подтверждение рассылки сводки обновления (админ)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"📣 Разослать ({pending})", callback_data="announce:send"
+                ),
+                InlineKeyboardButton(text="Отмена", callback_data="announce:cancel"),
+            ]
+        ]
+    )
+
+
 # ── Староста ──────────────────────────────────────────────
 
 

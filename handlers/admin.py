@@ -1,5 +1,5 @@
 """
-Обработчик панели администратора: /admin, назначение/снятие старост.
+Обработчик панели администратора: /admin, назначение/снятие старост, /announce.
 """
 
 import hmac
@@ -12,11 +12,17 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+from announcements import (
+    ANNOUNCEMENT_ID,
+    broadcast_announcement,
+    send_announcement,
+)
 from config import ADMIN_PASSWORD, ADMIN_USER_IDS
 from database import (
     get_all_users,
     get_user,
     get_users_by_role,
+    get_users_without_announcement,
     search_users,
     set_user_role,
 )
@@ -27,6 +33,7 @@ from keyboards import (
     admin_starostas_kb,
     admin_user_card_kb,
     admin_users_kb,
+    announce_confirm_kb,
     back_kb,
     main_menu_kb,
 )
@@ -528,6 +535,58 @@ async def _guard_admin(callback: CallbackQuery) -> bool:
         await callback.answer("Нет доступа", show_alert=True)
         return False
     return True
+
+
+@router.message(Command("announce"))
+async def cmd_announce(message: Message, state: FSMContext) -> None:
+    """/announce — предпросмотр сводки обновления себе и подтверждение рассылки."""
+    user = await get_user(message.from_user.id)
+    if not user or user.get("role") != "admin":
+        await message.answer(no_access_text(), parse_mode=HTML_PARSE_MODE)
+        return
+    await delete_user_message(message)
+    # Предпросмотр — ровно как увидят все (заодно админ отмечен как получивший).
+    await send_announcement(message.bot, message.from_user.id)
+    pending = len(await get_users_without_announcement(ANNOUNCEMENT_ID))
+    await message.answer(
+        titled(
+            "Сводка обновления",
+            f"Выше — как её увидят все. Получат ещё: {pending}.\n"
+            "Без звука, с кнопкой «Скрыть», удалится сама через 24 часа.",
+        ),
+        reply_markup=announce_confirm_kb(pending),
+        parse_mode=HTML_PARSE_MODE,
+    )
+
+
+@router.callback_query(F.data == "announce:send")
+async def on_announce_send(callback: CallbackQuery) -> None:
+    """Разослать сводку всем, кому она ещё не отправлена."""
+    if not await _guard_admin(callback):
+        return
+    await callback.answer("Рассылаю…")
+    await callback.message.edit_text(
+        titled("Сводка обновления", "Рассылаю…"), parse_mode=HTML_PARSE_MODE
+    )
+    sent, failed = await broadcast_announcement(callback.bot)
+    result = f"Готово · отправлено: {sent}"
+    if failed:
+        result += f"\nНе доставлено: {failed} (заблокировали бота или недоступны)"
+    await callback.message.edit_text(
+        titled("Сводка обновления", result), parse_mode=HTML_PARSE_MODE
+    )
+
+
+@router.callback_query(F.data == "announce:cancel")
+async def on_announce_cancel(callback: CallbackQuery) -> None:
+    """Отменить рассылку сводки."""
+    if not await _guard_admin(callback):
+        return
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer("Отменено")
 
 
 @router.callback_query(F.data == "admin:search")
