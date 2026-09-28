@@ -215,15 +215,16 @@ def check_echo(html: str, message: Message) -> list[tuple[str, bool]]:
     if rich is None:
         return [("в ответе есть rich_message", False)]
     blocks = list(_walk(rich.blocks))
-    # Таблицы расписания; строка «Подробнее … группа» (кнопка в ячейке) — без полос, не в счёт.
-    tables = [
-        b
-        for b in blocks
-        if isinstance(b, RichBlockTable)
-        and not any(
-            isinstance(f, RichTextButton) for row in b.cells for c in row for f in _texts(c.text)
-        )
-    ]
+
+    # Таблицы расписания. Строка под таблицей («Подробнее» и/или группа) — без полос,
+    # не в счёт: одна строка, первая ячейка — кнопка или пустая.
+    def _under_table_row(table: RichBlockTable) -> bool:
+        if len(table.cells) != 1:
+            return False
+        first = table.cells[0][0].text
+        return not _plain(first) or any(isinstance(f, RichTextButton) for f in _texts(first))
+
+    tables = [b for b in blocks if isinstance(b, RichBlockTable) and not _under_table_row(b)]
     details = [b for b in blocks if isinstance(b, RichBlockDetails)]
     paragraphs = [b for b in blocks if isinstance(b, RichBlockParagraph)]
     fragments = [
