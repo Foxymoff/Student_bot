@@ -3,6 +3,7 @@
 """
 
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -39,9 +40,10 @@ INFO_ALIASES: dict[str, str] = {
 }
 
 
+@router.message(Command("links"))
 @router.message(F.text.in_(set(INFO_ALIASES)))
 async def on_info_screen(message: Message, state: FSMContext) -> None:
-    """Открыть информационный раздел с кнопкой Назад."""
+    """Полезные ссылки (/links; текстом — со старых клавиатур) с кнопкой Назад."""
     user = await get_user(message.from_user.id)
     if not user:
         await message.answer(register_required_text(), parse_mode=HTML_PARSE_MODE)
@@ -49,7 +51,7 @@ async def on_info_screen(message: Message, state: FSMContext) -> None:
 
     await delete_user_message(message)
 
-    screen_key = INFO_ALIASES[message.text]
+    screen_key = INFO_ALIASES.get(message.text or "", "Полезные ссылки")
     screen_title, text = INFO_SCREENS[screen_key]
 
     header = await message.answer(

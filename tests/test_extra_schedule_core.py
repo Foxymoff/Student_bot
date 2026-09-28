@@ -2,9 +2,7 @@ import datetime
 
 import extra_schedule
 from extra_schedule import (
-    format_extra_day,
     get_extra_options,
-    get_extra_week,
     get_extras_for_date,
     make_extra_key,
 )
@@ -68,27 +66,6 @@ def test_get_extra_options_deduplicates_options_by_key(monkeypatch):
     ]
 
 
-def test_get_extra_week_returns_only_selected_options(monkeypatch):
-    monkeypatch.setattr(
-        extra_schedule,
-        "_load_extra_schedule",
-        lambda _group_name: {
-            "weeks": {
-                "even": {
-                    "Понедельник": {"extra": [EXTRA_A]},
-                    "Вторник": {"extra": [EXTRA_B]},
-                }
-            }
-        },
-    )
-
-    result = get_extra_week("ИСП-25-1", [make_extra_key(EXTRA_B)])
-
-    assert len(result) == 1
-    assert result[0][0] == "Вторник"
-    assert result[0][1][0]["_key"] == make_extra_key(EXTRA_B)
-
-
 def test_get_extras_for_date_uses_week_type_and_weekday(monkeypatch):
     monkeypatch.setattr(extra_schedule, "_get_week_type", lambda _date: "even")
     monkeypatch.setattr(
@@ -110,23 +87,3 @@ def test_get_extras_for_date_uses_week_type_and_weekday(monkeypatch):
 
     assert len(result) == 1
     assert result[0]["_key"] == make_extra_key(EXTRA_A)
-
-
-def test_format_extra_day_escapes_html_and_shortens_room():
-    result = format_extra_day(
-        [
-            {
-                "subject": "A <B>",
-                "time": "16:00",
-                "room": "Спорткомплекс",
-                "teacher": "T & C",
-                "note": "x < y",
-            }
-        ],
-        datetime.date(2026, 7, 6),
-    )
-
-    assert "A &lt;B&gt;" in result
-    assert "СК" in result
-    assert "T &amp; C" in result
-    assert "x &lt; y" in result

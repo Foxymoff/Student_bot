@@ -1,5 +1,5 @@
 """
-Обработчик раздела «Доп. занятия» и команды /extra.
+Выбор доп. занятий (/extra); сами занятия показываются в основном расписании.
 """
 
 import logging
@@ -10,24 +10,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from database import get_user, update_user_extra_choices, update_user_extra_in_schedule
-from extra_schedule import (
-    format_extra_week_detailed,
-    format_extra_week_short,
-    get_extra_options,
-    get_extra_week,
-    parse_extra_choices,
-)
-from handlers.start import _profile_text, push_nav
-from keyboards import (
-    back_kb,
-    extra_collapse_kb,
-    extra_detail_kb,
-    extra_select_kb,
-    main_menu_kb,
-    profile_menu_kb,
-)
-from message_style import HTML_PARSE_MODE, MAIN_MENU_TEXT, register_required_text, title
+from database import get_user, update_user_extra_choices
+from extra_schedule import get_extra_options, parse_extra_choices
+from handlers.start import _profile_text, _replace_with_main_menu
+from keyboards import extra_select_kb, main_menu_kb, profile_menu_kb
+from message_style import HTML_PARSE_MODE, MAIN_MENU_TEXT, register_required_text
 from ui_messages import delete_user_message, replace_ui_messages
 
 logger = logging.getLogger(__name__)
@@ -43,82 +30,21 @@ def _selected_keys(user: dict) -> list[str]:
     return parse_extra_choices(user.get("extra_choices"))
 
 
-def _extra_week_text(user: dict) -> str:
-    """Сформировать цикличное недельное расписание доп. занятий."""
-    selected = _selected_keys(user)
-    extra_week = get_extra_week(user["group_name"], selected)
-    return format_extra_week_short(extra_week, bool(selected))
-
-
-def _has_extra_schedule(user: dict) -> bool:
-    """Есть ли выбранные доп. занятия с расписанием."""
-    selected = _selected_keys(user)
-    return bool(get_extra_week(user["group_name"], selected))
-
-
 @router.message(F.text.in_({"Доп. занятия", "📌 Доп. занятия", "📌Доп. занятия"}))
-async def on_extra_menu(message: Message, state: FSMContext) -> None:
-    """Кнопка «Доп. занятия» в главном меню: сразу показать неделю."""
+async def on_extra_menu_removed(message: Message, state: FSMContext) -> None:
+    """Старая кнопка «📌 Доп. занятия»: кружки теперь в расписании — обновить меню."""
     user = await get_user(message.from_user.id)
     if not user:
         await message.answer(register_required_text(), parse_mode=HTML_PARSE_MODE)
         return
-
     await delete_user_message(message)
-
-    text = _extra_week_text(user)
-    header = await message.answer(
-        title("Доп. занятия"), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
-    )
-    reply_markup = extra_detail_kb() if _has_extra_schedule(user) else None
-    body = await message.answer(text, reply_markup=reply_markup, parse_mode="HTML")
-    await replace_ui_messages(
-        message.bot,
-        message.chat.id,
-        state,
-        [header.message_id, body.message_id],
-        screen="extra",
-        clear_state=True,
-        last_bot_msg=header.message_id,
-        last_extra_msg=body.message_id,
-    )
-    await push_nav(state, "extra_screen")
+    await _replace_with_main_menu(message, state, user)
 
 
-@router.callback_query(F.data == "extra_detail")
-async def on_extra_detail(callback: CallbackQuery) -> None:
-    """Развернуть подробный вид расписания доп. занятий."""
-    user = await get_user(callback.from_user.id)
-    if not user:
-        await callback.answer("Открой /start", show_alert=True)
-        return
-    selected = _selected_keys(user)
-    extra_week = get_extra_week(user["group_name"], selected)
-    text = format_extra_week_detailed(extra_week, bool(selected))
-    await callback.message.edit_text(
-        text,
-        reply_markup=extra_collapse_kb() if extra_week else None,
-        parse_mode="HTML",
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "extra_collapse")
-async def on_extra_collapse(callback: CallbackQuery) -> None:
-    """Свернуть расписание доп. занятий обратно в краткий вид."""
-    user = await get_user(callback.from_user.id)
-    if not user:
-        await callback.answer("Открой /start", show_alert=True)
-        return
-    selected = _selected_keys(user)
-    extra_week = get_extra_week(user["group_name"], selected)
-    text = format_extra_week_short(extra_week, bool(selected))
-    await callback.message.edit_text(
-        text,
-        reply_markup=extra_detail_kb() if extra_week else None,
-        parse_mode="HTML",
-    )
-    await callback.answer()
+@router.callback_query(F.data.in_({"extra_detail", "extra_collapse"}))
+async def on_extra_week_removed(callback: CallbackQuery) -> None:
+    """Кнопки старого отдельного расписания кружков."""
+    await callback.answer("Кружки теперь показываются в основном расписании", show_alert=True)
 
 
 @router.message(Command("extra"))
@@ -193,16 +119,12 @@ async def on_extra_edit(callback: CallbackQuery, state: FSMContext) -> None:
 
     ordered_selected = [option["_key"] for option in options if option["_key"] in selected]
     await update_user_extra_choices(callback.from_user.id, ordered_selected)
-    if not ordered_selected:
-        await update_user_extra_in_schedule(callback.from_user.id, False)
     await callback.answer("Готово · доп. занятия обновлены", show_alert=True)
     updated_user = await get_user(callback.from_user.id)
     role = (updated_user.get("role") or "student") if updated_user else "student"
     sent = await callback.message.answer(
         MAIN_MENU_TEXT,
-        reply_markup=main_menu_kb(
-            role, not bool(updated_user and updated_user.get("extra_in_schedule"))
-        ),
+        reply_markup=main_menu_kb(role),
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(

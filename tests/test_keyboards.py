@@ -52,3 +52,73 @@ def test_starosta_pair_actions_last_button_label_differs():
     labels_added = [b.text for row in added.inline_keyboard for b in row]
     assert any("Откатить" in t for t in labels_regular)
     assert any("Удалить пару" in t for t in labels_added)
+
+
+from keyboards import settings_menu_kb, settings_view_kb  # noqa: E402
+
+
+def test_settings_view_kb_is_only_compact_toggle():
+    assert _cb_set(settings_view_kb(True)) == {"settings:compact:0", "settings:back"}
+    assert _cb_set(settings_view_kb(False)) == {"settings:compact:1", "settings:back"}
+
+
+def test_settings_menu_view_row_only_for_classic():
+    classic = settings_menu_kb(True, classic=True)
+    rich = settings_menu_kb(True, classic=False)
+
+    assert classic.inline_keyboard[0][0].text == "📱 Вид расписания: Компактный"
+    assert "settings:view" not in _cb_set(rich)  # у нового вида настроек вида нет
+
+
+from keyboards import main_menu_kb, schedule_period_reply_kb  # noqa: E402
+
+
+def test_main_menu_without_links_and_extras():
+    student = [b.text for row in main_menu_kb().keyboard for b in row]
+    admin = [b.text for row in main_menu_kb("admin").keyboard for b in row]
+
+    assert student == ["📅 Расписание"]  # ссылки — в меню команд (/links), кружки — в расписании
+    assert admin == ["📅 Расписание", "📋 Староста", "⚙️ Админ"]
+
+
+def test_settings_menu_has_no_extra_display_row():
+    kb = settings_menu_kb(False)
+
+    assert not any(
+        b.callback_data.startswith("settings:extra") for row in kb.inline_keyboard for b in row
+    )
+
+
+def test_reply_accent_buttons_are_primary_and_text_unchanged():
+    menu = main_menu_kb()
+    period = schedule_period_reply_kb()
+
+    assert (menu.keyboard[0][0].text, menu.keyboard[0][0].style) == ("📅 Расписание", "primary")
+    assert (period.keyboard[0][0].text, period.keyboard[0][0].style) == ("Сегодня", "primary")
+    assert period.keyboard[0][1].style is None
+    assert period.keyboard[2][0].text == "⬅️ Назад"
+
+
+def test_settings_kb_maps_user_fields_to_labels():
+    """Порядок позиционных аргументов settings_menu_kb: сдвиг ломает подписи меню."""
+    from handlers.start import _settings_kb
+
+    user = {
+        "compact_mode": 1,
+        "daily_notify_enabled": 1,
+        "daily_notify_time": "09:30",
+        "change_alert_enabled": 1,
+        "daily_notify_target": "tomorrow",
+        "classic_view": 1,
+    }
+    labels = [row[0].text for row in _settings_kb(user).inline_keyboard]
+
+    assert labels == [
+        "📱 Вид расписания: Компактный",
+        "🔔 Ежедневное расписание: 🌙 09:30",
+        "🚨 Алерты изменений: вкл.",
+        "⬅️ Главное меню",
+    ]
+    # Новый вид: пункта «Вид расписания» нет, остальное на местах.
+    rich_labels = [row[0].text for row in _settings_kb({**user, "classic_view": 0}).inline_keyboard]
+    assert rich_labels == labels[1:]

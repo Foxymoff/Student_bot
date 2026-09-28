@@ -61,6 +61,9 @@ async def init_db() -> None:
                 subgroup_en INTEGER DEFAULT 1,
                 role TEXT DEFAULT 'student',
                 compact_mode INTEGER DEFAULT 0,
+                classic_view INTEGER DEFAULT 0,
+                schedule_detailed INTEGER DEFAULT 0,
+                last_announcement TEXT,
                 extra_choices TEXT DEFAULT '[]',
                 extra_in_schedule INTEGER DEFAULT 0,
                 daily_notify_enabled INTEGER DEFAULT 0,
@@ -84,6 +87,9 @@ async def init_db() -> None:
             ("role", "TEXT DEFAULT 'student'"),
             ("created_at", "TEXT DEFAULT (datetime('now'))"),
             ("compact_mode", "INTEGER DEFAULT 0"),
+            ("classic_view", "INTEGER DEFAULT 0"),
+            ("schedule_detailed", "INTEGER DEFAULT 0"),
+            ("last_announcement", "TEXT"),
             ("extra_choices", "TEXT DEFAULT '[]'"),
             ("extra_in_schedule", "INTEGER DEFAULT 0"),
             ("daily_notify_enabled", "INTEGER DEFAULT 0"),
@@ -211,6 +217,48 @@ async def update_user_compact(user_id: int, compact: bool) -> None:
         await db.commit()
 
 
+async def update_user_classic_view(user_id: int, classic: bool) -> None:
+    """Переключить классический вид расписания (обычные сообщения вместо rich)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET classic_view = ? WHERE user_id = ?",
+            (1 if classic else 0, user_id),
+        )
+        await db.commit()
+
+
+async def update_user_schedule_detailed(user_id: int, detailed: bool) -> None:
+    """Запомнить, в каком виде (подробном или кратком) человек последний раз смотрел день."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET schedule_detailed = ? WHERE user_id = ?",
+            (1 if detailed else 0, user_id),
+        )
+        await db.commit()
+
+
+async def get_users_without_announcement(announcement_id: str) -> list[dict]:
+    """Пользователи, которым ещё не отправлена сводка обновления announcement_id."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM users WHERE last_announcement IS NULL OR last_announcement != ?",
+            (announcement_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def mark_announcement_sent(user_id: int, announcement_id: str) -> None:
+    """Отметить, что сводка announcement_id пользователю отправлена (повторно не шлём)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET last_announcement = ? WHERE user_id = ?",
+            (announcement_id, user_id),
+        )
+        await db.commit()
+
+
 async def update_user_extra_choices(user_id: int, choices: list[str]) -> None:
     """Сохранить выбранные пользователем доп. занятия."""
     value = json.dumps(choices, ensure_ascii=False)
@@ -218,16 +266,6 @@ async def update_user_extra_choices(user_id: int, choices: list[str]) -> None:
         await db.execute(
             "UPDATE users SET extra_choices = ? WHERE user_id = ?",
             (value, user_id),
-        )
-        await db.commit()
-
-
-async def update_user_extra_in_schedule(user_id: int, enabled: bool) -> None:
-    """Переключить отображение доп. занятий в основном расписании."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET extra_in_schedule = ? WHERE user_id = ?",
-            (1 if enabled else 0, user_id),
         )
         await db.commit()
 

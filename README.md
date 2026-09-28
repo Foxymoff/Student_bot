@@ -25,13 +25,14 @@ The project also gives group leaders a simple way to publish schedule changes, s
 - Detect even and odd academic weeks automatically.
 - Filter lessons by informatics and English subgroups.
 - View another group's schedule without changing the user profile.
-- Select extra classes and show them separately or inside the main schedule.
-- Switch between compact and detailed schedule output.
+- Select extra classes; the selected ones are shown inside the main schedule.
+- Rich schedule messages (Telegram Rich HTML): one compact table per day, details and teachers in a collapsible block, a live countdown to the next lesson, and the week as an accordion. «📅 Расписание» opens today right away: buttons inside the message switch days and weeks and toggle the detailed table, editing the same message. The bot remembers whether the user last viewed the short or the detailed table. The period keyboard is kept for the classic view.
+- Switch to the classic plain-message schedule with `/classic`; in the classic view, settings offer compact and column layouts.
 - Configure personal daily schedule notifications.
 - Receive alerts about schedule changes.
 - Use group leader tools to update lessons quickly.
 - Use admin tools to assign and remove group leaders.
-- Open useful campus and sports complex links from Telegram.
+- Open useful campus and sports complex links with `/links`.
 
 ## Supported Groups
 
@@ -129,6 +130,7 @@ On the first run, the bot creates `bot.db` in the project directory unless `DB_D
 | `ADMIN_USER_IDS` | No | Comma-separated Telegram user IDs allowed to use `/admin`. Recommended for production. |
 | `DB_DIR` | No | Directory where `bot.db` is created. Useful for Docker volumes. |
 | `EXTRA_DATA_DIR` | No | Directory with extra class JSON files. Defaults to `data/`. |
+| `RICH_SCHEDULE` | No | `0` sends the schedule in the classic view to everyone. Defaults to `1` (rich view). |
 
 ## Running with Docker
 
@@ -159,13 +161,14 @@ In Docker, the database is stored in the `bot-data` volume because `docker-compo
 | `/start` | Initial registration, group selection, and subgroup selection. |
 | `/profile` | Study profile: group, subgroups, and extra classes. |
 | `/groups` | View another group's schedule. |
-| `/settings` | Schedule view, extra classes, daily notifications, and alerts. |
+| `/settings` | Schedule view, daily notifications, and alerts. |
 | `/help` | Contact information for questions and bug reports. |
+| `/classic` | Toggle the classic schedule view (plain messages) for the current user. Not shown in the command menu; mentioned in `/help`. |
+| `/links` | Links to campus services. |
 | `/extra` | Shortcut for extra class settings through the profile flow. |
 | `/admin <password>` | Grant admin access to the current user. |
-| `📅 Расписание` | Schedule for the selected period. |
-| `📌 Доп. занятия` | Weekly schedule for selected extra classes. |
-| `🔗 Полезные ссылки` | Links to campus services. |
+| `/announce` | Admin only: preview the update summary, then send it silently to all users (with a «Скрыть» button, auto-deleted after 24 hours). |
+| `📅 Расписание` | Today's schedule (rich view) or period selection (classic view). |
 | `📋 Староста` | Schedule editing panel for group leaders and admins. |
 | `⚙️ Админ` | Assign and remove group leaders. |
 
@@ -187,7 +190,7 @@ After the first admin is created, `ADMIN_PASSWORD` can be removed and new group 
 ├── docs/                  # testing and project documentation
 ├── handlers/              # command, button, and callback handlers
 │   ├── admin.py           # admin panel
-│   ├── extra.py           # extra classes
+│   ├── extra.py           # choosing extra classes (/extra)
 │   ├── info.py            # informational sections
 │   ├── schedule.py        # main schedule views
 │   ├── starosta.py        # group leader panel
@@ -195,7 +198,7 @@ After the first admin is created, `ADMIN_PASSWORD` can be removed and new group 
 ├── tests/                 # pytest test suite
 ├── config.py              # settings, groups, paths, dictionaries
 ├── database.py            # SQLite schema and queries
-├── extra_schedule.py      # loading and formatting extra classes
+├── extra_schedule.py      # loading and choosing extra classes
 ├── keyboards.py           # reply and inline keyboards
 ├── main.py                # application entry point
 ├── scheduler.py           # background daily notifications

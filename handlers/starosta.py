@@ -520,7 +520,7 @@ async def _replace_with_main_menu(message: Message, state: FSMContext, user: dic
     role = (user.get("role") or "student") if user else "student"
     sent = await message.answer(
         MAIN_MENU_TEXT,
-        reply_markup=main_menu_kb(role, not bool(user and user.get("extra_in_schedule"))),
+        reply_markup=main_menu_kb(role),
         parse_mode=HTML_PARSE_MODE,
     )
     await replace_ui_messages(

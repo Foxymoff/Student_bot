@@ -1,10 +1,9 @@
 """
-Загрузка, выбор и форматирование расписания доп. занятий из extra JSON.
+Загрузка и выбор доп. занятий из extra JSON (показываются в основном расписании).
 """
 
 import datetime
 import hashlib
-import html as _html
 import json
 import logging
 from pathlib import Path
@@ -14,7 +13,6 @@ from config import (
     DATA_DIR,
     EXTRA_DATA_DIR,
     EXTRA_GROUP_FILES,
-    ROOM_SHORT,
     SUBJECT_SHORT,
     app_today,
 )
@@ -57,29 +55,9 @@ MONTH_NAMES: dict[int, str] = {
 }
 
 
-def _esc(text: str) -> str:
-    """HTML-экранирование текста."""
-    return _html.escape(str(text))
-
-
 def _short_name(subject: str) -> str:
     """Сокращение длинных названий предметов."""
     return SUBJECT_SHORT.get(subject, subject)
-
-
-def _short_room(room: str | None) -> str:
-    """Сокращение аудиторий."""
-    if not room:
-        return ""
-    return ROOM_SHORT.get(room, room)
-
-
-def _date_header(target_date: datetime.date) -> str:
-    """Красивый заголовок даты: '5 марта · среда'."""
-    return (
-        f"{target_date.day} {MONTH_NAMES[target_date.month]}"
-        f" · {WEEKDAY_NAMES_SHORT[target_date.weekday()]}"
-    )
 
 
 def _get_week_type(target_date: datetime.date | None = None) -> str:
@@ -190,42 +168,6 @@ def get_extra_options(group_name: str) -> list[dict]:
     return result
 
 
-def get_extra_week(
-    group_name: str,
-    selected_keys: list[str] | set[str],
-) -> list[tuple[str, list[dict]]]:
-    """Получить цикличное недельное расписание выбранных доп. занятий."""
-    if not selected_keys:
-        return []
-
-    data = _load_extra_schedule(group_name)
-    if not data:
-        return []
-
-    weeks = data.get("weeks", {})
-    week_data = {}
-    for candidate in (weeks.get("even"), weeks.get("odd"), *weeks.values()):
-        if not candidate:
-            continue
-        if any(candidate.get(day, {}).get("extra") for day in WEEKDAY_NAMES):
-            week_data = candidate
-            break
-    selected = set(selected_keys)
-    result: list[tuple[str, list[dict]]] = []
-
-    for day_name in WEEKDAY_NAMES:
-        raw_extras = week_data.get(day_name, {}).get("extra", [])
-        extras = [
-            item
-            for item in (_normalize_extra(extra) for extra in raw_extras)
-            if item["_key"] in selected
-        ]
-        if extras:
-            result.append((day_name, extras))
-
-    return result
-
-
 def get_extras_for_date(
     group_name: str,
     target_date: datetime.date,
@@ -248,92 +190,3 @@ def get_extras_for_date(
         for item in (_normalize_extra(extra) for extra in raw_extras)
         if item["_key"] in selected
     ]
-
-
-def format_extra_day(
-    extras: list[dict],
-    target_date: datetime.date,
-    has_choices: bool = True,
-) -> str:
-    """Сформировать расписание доп. занятий на день."""
-    header = f"<b>{_esc(_date_header(target_date))}</b>"
-    if not has_choices:
-        return f"{header}\nТы пока не выбрал доп. занятия.\nИзменить выбор можно через /extra"
-    if not extras:
-        return f"{header}\nВыбранных доп. занятий нет."
-
-    blocks: list[str] = []
-    for extra in extras:
-        subject = _esc(_short_name(str(extra.get("subject") or extra.get("type") or "")))
-        block = [f"📌 <b>{subject}</b>"]
-        if extra.get("time"):
-            block.append(f"Время: {_esc(extra['time'])}")
-        if extra.get("room"):
-            block.append(f"Аудитория: {_esc(_short_room(extra['room']))}")
-        if extra.get("teacher"):
-            block.append(f"Преподаватель: {_esc(extra['teacher'])}")
-        if extra.get("note"):
-            block.append(f"Примечание: {_esc(extra['note'])}")
-        blocks.append("\n".join(block))
-
-    return f"{header}\n" + "\n\n".join(blocks)
-
-
-def format_extra_week_short(
-    extra_week: list[tuple[str, list[dict]]], has_choices: bool = True
-) -> str:
-    """Сформировать краткое цикличное расписание выбранных доп. занятий."""
-    if not has_choices:
-        return "Ты пока не выбрал доп. занятия.\nИзменить выбор можно через /extra"
-    if not extra_week:
-        return "В выбранных доп. занятиях на неделе нет расписания."
-
-    day_blocks: list[str] = []
-    for day_name, extras in extra_week:
-        rows = []
-        for index, extra in enumerate(extras, start=1):
-            subject = _short_name(str(extra.get("subject") or extra.get("type") or ""))
-            room = _short_room(extra.get("room") or "")
-            row = f"{index} {_esc(subject)}"
-            if room:
-                row += f"  {_esc(room)}"
-            rows.append(row)
-        day_blocks.append(f"<b>{_esc(day_name)}:</b>\n<code>{chr(10).join(rows)}</code>")
-
-    return "\n\n".join(day_blocks)
-
-
-def format_extra_week_detailed(
-    extra_week: list[tuple[str, list[dict]]], has_choices: bool = True
-) -> str:
-    """Сформировать подробное цикличное расписание выбранных доп. занятий."""
-    if not has_choices:
-        return "Ты пока не выбрал доп. занятия.\nИзменить выбор можно через /extra"
-    if not extra_week:
-        return "В выбранных доп. занятиях на неделе нет расписания."
-
-    day_blocks: list[str] = []
-    for day_name, extras in extra_week:
-        blocks = []
-        for index, extra in enumerate(extras, start=1):
-            subject = _esc(_short_name(str(extra.get("subject") or extra.get("type") or "")))
-            time_str = _esc(str(extra.get("time") or "-"))
-            room = _esc(_short_room(extra.get("room") or "-"))
-            teacher = _esc(str(extra.get("teacher") or "-"))
-            blocks.append(
-                "\n".join(
-                    [
-                        f"{index} {subject}",
-                        f"  {time_str} · {room}",
-                        f"  {teacher}",
-                    ]
-                )
-            )
-        day_blocks.append(f"<b>{_esc(day_name)}:</b>\n<code>{(chr(10) * 2).join(blocks)}</code>")
-
-    return "\n\n".join(day_blocks)
-
-
-def format_extra_week(extra_week: list[tuple[str, list[dict]]], has_choices: bool = True) -> str:
-    """Обратная совместимость: по умолчанию краткий вид."""
-    return format_extra_week_short(extra_week, has_choices)

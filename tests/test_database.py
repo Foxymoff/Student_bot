@@ -22,27 +22,78 @@ async def temp_db(tmp_path, monkeypatch):
 async def test_add_user_keeps_extra_settings_for_same_group(temp_db):
     await database.add_user(1, GROUP_A)
     await database.update_user_extra_choices(1, ["extra-a", "extra-b"])
-    await database.update_user_extra_in_schedule(1, True)
 
     await database.add_user(1, GROUP_A)
 
     user = await database.get_user(1)
     assert json.loads(user["extra_choices"]) == ["extra-a", "extra-b"]
-    assert user["extra_in_schedule"] == 1
 
 
 @pytest.mark.asyncio
 async def test_add_user_resets_extra_settings_when_group_changes(temp_db):
     await database.add_user(1, GROUP_A)
     await database.update_user_extra_choices(1, ["extra-a"])
-    await database.update_user_extra_in_schedule(1, True)
 
     await database.add_user(1, GROUP_B)
 
     user = await database.get_user(1)
     assert user["group_name"] == GROUP_B
     assert json.loads(user["extra_choices"]) == []
-    assert user["extra_in_schedule"] == 0
+
+
+@pytest.mark.asyncio
+async def test_classic_view_defaults_off_and_toggles(temp_db):
+    await database.add_user(1, GROUP_A)
+    assert (await database.get_user(1))["classic_view"] == 0
+
+    await database.update_user_classic_view(1, True)
+    assert (await database.get_user(1))["classic_view"] == 1
+
+    await database.update_user_classic_view(1, False)
+    assert (await database.get_user(1))["classic_view"] == 0
+
+
+@pytest.mark.asyncio
+async def test_schedule_detailed_defaults_off_and_toggles(temp_db):
+    await database.add_user(1, GROUP_A)
+    assert (await database.get_user(1))["schedule_detailed"] == 0
+
+    await database.update_user_schedule_detailed(1, True)
+    assert (await database.get_user(1))["schedule_detailed"] == 1
+
+    await database.update_user_schedule_detailed(1, False)
+    assert (await database.get_user(1))["schedule_detailed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_announcement_tracking(temp_db):
+    await database.add_user(1, GROUP_A)
+    await database.add_user(2, GROUP_B)
+
+    pending = await database.get_users_without_announcement("a1")
+    assert {u["user_id"] for u in pending} == {1, 2}
+
+    await database.mark_announcement_sent(1, "a1")
+    assert [u["user_id"] for u in await database.get_users_without_announcement("a1")] == [2]
+    # Новая сводка — снова всем.
+    assert {u["user_id"] for u in await database.get_users_without_announcement("a2")} == {1, 2}
+
+
+@pytest.mark.asyncio
+async def test_init_db_adds_classic_view_to_existing_table(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot.db"
+    monkeypatch.setattr(database, "DB_PATH", db_path)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("CREATE TABLE users (user_id INTEGER PRIMARY KEY, group_name TEXT)")
+        await db.execute("INSERT INTO users VALUES (1, ?)", (GROUP_A,))
+        await db.commit()
+
+    await database.init_db()
+
+    user = await database.get_user(1)
+    assert user["classic_view"] == 0
+    assert user["schedule_detailed"] == 0
+    assert user["last_announcement"] is None
 
 
 @pytest.mark.asyncio
