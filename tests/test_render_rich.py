@@ -26,6 +26,8 @@ from render_rich import (
     render_week_html,
 )
 from tests.rich_fixtures import (
+    ADDED_AND_RENAMED,
+    ALL_CANCELLED,
     CASES,
     FRIDAY,
     GROUP,
@@ -158,24 +160,39 @@ def test_golden(name):
     assert_golden(name, html)
 
 
-def test_reference_day_matches_spec():
+def _tg(hour: int, minute: int, day: int = 25) -> str:
+    unix = int(at(day, hour, minute).timestamp())
+    return f'<tg-time unix="{unix}" format="r">в {hour:02d}:{minute:02d}</tg-time>'
+
+
+def test_reference_day_short():
     html = today_html(at(25, 1, 22))
+
+    assert html == (
+        "<h3>Пятница, 25 сентября</h3>"
+        f"<p>09:20–15:00 · начало 1 пары {_tg(9, 20)}</p>"
+        "<table compact striped>"
+        '<tr><td>1</td><td><b>МДК 04.02</b></td><td align="right">501</td></tr>'
+        '<tr><td>2</td><td>История</td><td align="right">КЗ</td></tr>'
+        '<tr><td>3</td><td>Ин. тех.</td><td align="right">КЗ</td></tr>'
+        "</table>"
+        f"<footer>{GROUP}</footer>"
+    )
+
+
+def test_reference_day_detailed():
+    html = today_html(at(25, 1, 22), detailed=True)
 
     assert html.startswith(
         "<h3>Пятница, 25 сентября</h3>"
-        '<p>3 пары, 09:20–15:00 · начало <tg-time unix="1790317200" format="r">'
-        "в 09:20</tg-time></p>"
+        f"<p>09:20–15:00 · начало 1 пары {_tg(9, 20)}</p>"
         "<table compact striped>"
-        '<tr><td>09:20</td><td><mark>МДК 04.02</mark></td><td align="right">501</td></tr>'
-        '<tr><td>11:00</td><td>История</td><td align="right">КЗ</td></tr>'
-        '<tr><td>13:30</td><td>Ин. тех.</td><td align="right">КЗ</td></tr>'
-        "</table>"
-        "<details><summary>Полные названия и преподаватели</summary><table compact striped>"
-        '<tr><td valign="top">09:20–10:50</td><td><b>Обеспечение качества функционирования'
-        " компьютерных систем</b><br><i>Павлович Е.М.</i></td>"
+        '<tr><td valign="top"><b>09:20–10:50</b></td><td><b>Обеспечение качества'
+        " функционирования компьютерных систем</b><br><i>Павлович Е.М.</i></td>"
         '<td align="right" valign="top">501</td></tr>'
     )
-    assert html.endswith(f"</table></details><footer>{GROUP}</footer>")
+    assert html.count("<table") == 1  # одна таблица, без блока с подробностями
+    assert "<details" not in html
 
 
 # ── Статусная строка ──────────────────────────────────────
@@ -186,24 +203,29 @@ def _status(now: datetime.datetime, date: datetime.date = FRIDAY) -> str:
     return re.search(r"<p>(.*?)</p>", html).group(1)
 
 
-def _tg(hour: int, minute: int) -> str:
-    unix = int(at(25, hour, minute).timestamp())
-    return f'<tg-time unix="{unix}" format="r">в {hour:02d}:{minute:02d}</tg-time>'
-
-
 @pytest.mark.parametrize(
     ("now", "status"),
     [
-        (at(24, 20, 0), f"начало {_tg(9, 20)}"),  # день в будущем
-        (at(25, 1, 22), f"начало {_tg(9, 20)}"),  # сегодня до первой пары
-        (at(25, 9, 20), f"сейчас МДК 04.02, конец {_tg(10, 50)}"),  # начало первой
-        (at(25, 11, 30), f"сейчас История, конец {_tg(12, 30)}"),  # идёт вторая
-        (at(25, 10, 50), f"следующая {_tg(11, 0)}"),  # перемена, конец первой
-        (at(25, 12, 45), f"следующая {_tg(13, 30)}"),  # большая перемена
+        (at(24, 20, 0), f"начало 1 пары {_tg(9, 20)}"),  # день в будущем
+        (at(25, 1, 22), f"начало 1 пары {_tg(9, 20)}"),  # сегодня до первой пары
+        (at(25, 9, 20), f"конец 1 пары {_tg(10, 50)}"),  # началась первая
+        (at(25, 11, 30), f"конец 2 пары {_tg(12, 30)}"),  # идёт вторая
+        (at(25, 10, 50), f"начало 2 пары {_tg(11, 0)}"),  # перемена
+        (at(25, 12, 45), f"начало 3 пары {_tg(13, 30)}"),  # большая перемена
     ],
 )
 def test_status_line(now, status):
-    assert _status(now) == f"3 пары, 09:20–15:00 · {status}"
+    # Числа пар в статусе нет — его и так видно по таблице.
+    assert _status(now) == f"09:20–15:00 · {status}"
+
+
+def test_status_for_extra_has_no_pair_number():
+    extra = Lesson(
+        start=at(25, 16, 50), end=at(25, 18, 20), short="UNITY", full="UNITY", extra=True
+    )
+    html = render_day_html(Day(FRIDAY, (extra,)), now=at(25, 17, 0), group=GROUP)
+
+    assert f"<p>16:50–18:20 · конец доп. занятия {_tg(18, 20)}</p>" in html
 
 
 def test_after_last_pair_shows_next_study_day():
@@ -211,19 +233,29 @@ def test_after_last_pair_shows_next_study_day():
 
     assert "<p>Пары на сегодня закончились.</p>" in html
     assert "<details><summary>Сегодняшние пары</summary><table" in html
-    assert "<h3>Суббота, 26 сентября</h3><p>1 пара, 11:00–12:30 · начало" in html
-    assert "<mark>" not in html
+    assert f"<h3>Суббота, 26 сентября</h3><p>11:00–12:30 · начало 2 пары {_tg(11, 0, 26)}" in html
+    assert "<b>" not in html  # ближайшая пара не сегодня — без выделения
 
 
-def test_nearest_pair_marked_onlytoday_html():
-    assert "<mark>История</mark>" in today_html(at(25, 10, 55))
-    assert "<mark>" not in day_html(FRIDAY, at(24, 20, 0))
+def test_nearest_pair_marked_only_today():
+    assert "<td><b>История</b></td>" in today_html(at(25, 10, 55))
+    assert '<td valign="top"><b>11:00–12:30</b></td>' in today_html(at(25, 10, 55), detailed=True)
+    assert "<b>" not in day_html(FRIDAY, at(24, 20, 0))
 
 
 def test_empty_day_without_upcoming():
     html = render_day_html(Day(SUNDAY), now=at(26, 18, 0), group=GROUP)
 
     assert html == f"<h3>Воскресенье, 27 сентября</h3><p>Пар нет.</p><footer>{GROUP}</footer>"
+
+
+def test_empty_day_points_to_next_study_day():
+    assert day_html(SUNDAY, at(26, 18, 0)) == (
+        "<h3>Воскресенье, 27 сентября</h3>"
+        "<p>Пар нет. Ближайшие: понедельник, 28 сентября, начало 1 пары "
+        f"{_tg(9, 20, 28)}</p>"
+        f"<footer>{GROUP}</footer>"
+    )
 
 
 def test_lead_for_daily_notify():
@@ -256,42 +288,66 @@ def test_plural_pairs(n, text):
 # ── Допзанятия, изменения, граничные случаи ───────────────
 
 
-def test_extra_is_italic_marked_and_counted_separately():
-    html = day_html(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA])
+def test_extra_is_italic_marked_with_plus():
+    short = day_html(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA])
+    full = day_html(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA], detailed=True)
 
-    assert "<p>3 пары + 1 доп, 09:20–18:20 · начало" in html
-    assert '<tr><td>16:50</td><td><i>UNITY</i> · доп</td><td align="right">501</td></tr>' in html
-    assert "<b><i>Разработка игр на движке UNITY</i></b> · доп<br><i>Павлович Е.М.</i>" in html
+    assert "<p>09:20–18:20 · начало 1 пары" in short
+    assert '<tr><td>+</td><td><i>UNITY</i> · доп</td><td align="right">501</td></tr>' in short
+    assert (
+        '<tr><td valign="top">16:50–18:20</td><td><b><i>Разработка игр на движке UNITY</i></b>'
+        " · доп<br><i>Павлович Е.М.</i><br><i>группа 1</i></td>"
+    ) in full
 
 
-def test_changes_cancel_room_online_note():
+def test_changes_short_shows_only_current_state():
     html = CASES["day_with_changes"]()
 
-    # Отменённая пара зачёркнута и не входит в счётчик и статус.
+    # Отменённая пара зачёркнута и не участвует в статусе.
     assert html.startswith(
-        f"<h3>Пятница, 25 сентября</h3><p>2 пары, 11:00–15:00 · начало {_tg(11, 0)}</p>"
+        f"<h3>Пятница, 25 сентября</h3><p>11:00–15:00 · начало 2 пары {_tg(11, 0)}"
     )
-    assert '<td><s>МДК 04.02</s></td><td align="right"><s>501</s></td>' in html
-    # В кратком виде — просто текущая аудитория, отметки только в подробностях.
-    assert '<td><mark>История</mark></td><td align="right">420</td>' in html
+    assert '<td>1</td><td><s>МДК 04.02</s></td><td align="right"><s>501</s></td>' in html
+    # В кратком виде — просто текущая аудитория, отметки и ссылки только в подробном.
+    assert '<td>2</td><td><b>История</b></td><td align="right">420</td>' in html
+    assert '<td>3</td><td>Ин. тех.</td><td align="right">ОНЛ</td>' in html
+    assert "<a " not in html
+    assert "ноутбук" not in html
+
+
+def test_changes_detailed_shows_marks_note_and_link():
+    html = CASES["full_with_changes"]()
+
     assert '<td align="right" valign="top"><b>420</b></td>' in html
-    assert "<br><i>Хайруллина Д.Х.</i><br><i>Тест</i>" in html
-    # Онлайн: в колонке аудитории «ОНЛ», как в классике; ссылка — абзацем внутри details.
-    assert '<td>Ин. тех.</td><td align="right">ОНЛ</td>' in html
+    assert "<br><i>Хайруллина Д.Х.</i><br><i>Принести ноутбук</i>" in html
+    assert '<td align="right" valign="top">ОНЛ</td>' in html
     assert (
         '<p>13:30 · Ин. тех. · онлайн: <a href="https://meet.example.com/a?b=1&amp;c=2">'
-        "https://meet.example.com/a?b=1&amp;c=2</a></p></details>"
+        "https://meet.example.com/a?b=1&amp;c=2</a></p><footer>"
     ) in html
 
 
-def test_missing_room_and_teacher():
-    lesson = Lesson(
-        start=at(25, 9, 20), end=at(25, 10, 50), short="Физика", full="Физика", room="", teacher=""
-    )
-    html = render_day_html(Day(FRIDAY, (lesson,)), now=at(24, 20, 0), group=GROUP)
+def test_added_and_renamed_pairs():
+    html = CASES["full_added_and_renamed"]()
+    short = day_html(FRIDAY, at(25, 1, 22), overrides=ADDED_AND_RENAMED)
 
-    assert '<td>Физика</td><td align="right"></td>' in html
-    assert "<td><b>Физика</b></td>" in html
+    assert "<td><b>История России</b><br><i>Хайруллина Д.Х.</i></td>" in html
+    # Добавленная пара: время из сетки звонков, без преподавателя и аудитории.
+    assert (
+        '<tr><td valign="top">15:10–16:40</td><td><b>Пересдача</b></td>'
+        '<td align="right" valign="top"></td></tr>'
+    ) in html
+    assert '<tr><td>4</td><td>Пересдача</td><td align="right"></td></tr>' in short
+    assert "<p>09:20–16:40 · начало 1 пары" in short
+
+
+def test_missing_room_and_teacher():
+    lesson = Lesson(start=at(25, 9, 20), end=at(25, 10, 50), short="Физика", full="Физика", num=1)
+    short = render_day_html(Day(FRIDAY, (lesson,)), now=at(24, 20, 0), group=GROUP)
+    full = render_day_html(Day(FRIDAY, (lesson,)), now=at(24, 20, 0), group=GROUP, detailed=True)
+
+    assert '<td>1</td><td>Физика</td><td align="right"></td>' in short
+    assert "<td><b>Физика</b></td>" in full
 
 
 def test_not_http_online_link_is_plain_text():
@@ -300,10 +356,11 @@ def test_not_http_online_link_is_plain_text():
         end=at(25, 10, 50),
         short="Физика",
         full="Физика",
+        num=1,
         online=True,
         online_url="javascript:alert(1)",
     )
-    html = render_day_html(Day(FRIDAY, (lesson,)), now=at(25, 1, 0), group=GROUP)
+    html = render_day_html(Day(FRIDAY, (lesson,)), now=at(25, 1, 0), group=GROUP, detailed=True)
 
     check_html(html)
     assert "<a " not in html
@@ -311,12 +368,12 @@ def test_not_http_online_link_is_plain_text():
 
 
 def test_all_cancelled_day():
-    cancel = [{"lesson_num": n, "subgroup": None, "override_type": "cancel"} for n in range(1, 4)]
-    html = day_html(FRIDAY, at(25, 1, 22), overrides=cancel)
+    for detailed in (False, True):
+        html = day_html(FRIDAY, at(25, 1, 22), overrides=ALL_CANCELLED, detailed=detailed)
 
-    check_html(html)
-    assert "<p>Все пары отменены. Ближайшие: суббота, 26 сентября, начало" in html
-    assert html.count("<s>") == 12  # название и аудитория, в кратком и подробном виде
+        check_html(html)
+        assert "<p>Все пары отменены. Ближайшие: суббота, 26 сентября, начало 2 пары" in html
+        assert html.count("<s>") == 6  # название и аудитория каждой пары
 
 
 def test_escaping_teacher_and_subject():
@@ -327,14 +384,17 @@ def test_escaping_teacher_and_subject():
         full="C++ & <Py> «полное»",
         room="<1>",
         teacher="Иванов <b>& Ко",
+        num=1,
     )
-    html = render_day_html(Day(FRIDAY, (lesson,)), now=at(25, 1, 0), group="A&B")
-
-    text = check_html(html)
+    for detailed in (False, True):
+        html = render_day_html(
+            Day(FRIDAY, (lesson,)), now=at(25, 1, 0), group="A&B", detailed=detailed
+        )
+        text = check_html(html)
+        assert "C++ & <Py>" in text
+        assert "<footer>A&amp;B</footer>" in html
     assert "<i>Иванов &lt;b&gt;&amp; Ко</i>" in html
     assert "Иванов <b>& Ко" in text
-    assert "C++ & <Py>" in text
-    assert "<footer>A&amp;B</footer>" in html
 
 
 # ── Неделя ────────────────────────────────────────────────
@@ -346,11 +406,11 @@ def test_week_open_policy_this_week():
     assert "<h3>Неделя 21–26 сентября</h3>" in html
     assert "<details><summary>Пн, 21 сентября · 3 пары</summary>" in html
     assert "<details><summary>Вт, 22 сентября · 3 пары</summary>" in html
-    assert "<details open><summary><mark>Ср, 23 сентября · сегодня</mark></summary>" in html
+    assert "<details open><summary><b>Ср, 23 сентября · сегодня</b></summary>" in html
     assert "<details open><summary>Чт, 24 сентября · 4 пары</summary>" in html
     assert "<details open><summary>Сб, 26 сентября · 1 пара</summary>" in html
     assert "Вс, 27" not in html  # воскресенье без пар не показываем
-    assert "<mark>Физ. культ.</mark>" in html  # ближайшая пара внутри сегодняшнего дня
+    assert "<td>3</td><td><b>Физ. культ.</b></td>" in html  # ближайшая пара сегодня
 
 
 def test_week_day_without_pairs_and_ended_week():
@@ -367,7 +427,7 @@ def test_week_next_all_open():
     html = render_week_html(week(MONDAY), now=at(18, 12, 0), group=GROUP, which="next")
 
     assert html.count("<details open>") == 6
-    assert "<mark>" not in html
+    assert "<b>" not in html
 
 
 def test_week_heading_across_months():
@@ -391,6 +451,7 @@ def _heavy_lesson(date: datetime.date, num: int) -> Lesson:
         full=name.strip(),
         room="Конференц-зал",
         teacher="Константинопольский-Преображенский А.А.",
+        num=num + 1,
         note="Принести ноутбук и зарядку, будет контрольная работа",
     )
 
@@ -400,13 +461,15 @@ def test_heaviest_week_and_day_fit_limit():
         Day(MONDAY + datetime.timedelta(days=i), tuple(_heavy_lesson(MONDAY, n) for n in range(5)))
         for i in range(6)
     ]
-    week_html = render_week_html(days, now=at(21, 1, 0), group=GROUP, which="this")
-    day_html = render_day_html(days[0], now=at(21, 1, 0), group=GROUP)
+    pages = [
+        render_week_html(days, now=at(21, 1, 0), group=GROUP, which="this"),
+        render_day_html(days[0], now=at(21, 1, 0), group=GROUP),
+        render_day_html(days[0], now=at(21, 1, 0), group=GROUP, detailed=True),
+    ]
 
-    check_html(week_html)
-    check_html(day_html)
-    assert len(week_html) < RICH_TEXT_LIMIT // 4
-    assert len(day_html) < RICH_TEXT_LIMIT // 4
+    for html in pages:
+        check_html(html)
+        assert len(html) < RICH_TEXT_LIMIT // 4
 
 
 def test_all_real_schedules_render_valid_html():
@@ -434,7 +497,12 @@ def test_all_real_schedules_render_valid_html():
             assert len(week_html) < RICH_TEXT_LIMIT // 4
             for index, target in enumerate(days):
                 nearest = next((d for d in days[index + 1 :] if d.lessons), None)
-                check_html(render_day_html(target, now=now, group=group, upcoming=nearest))
+                for detailed in (False, True):
+                    check_html(
+                        render_day_html(
+                            target, now=now, group=group, upcoming=nearest, detailed=detailed
+                        )
+                    )
 
 
 # ── Кнопки навигации (живое сообщение) ────────────────────
@@ -445,11 +513,12 @@ def test_nav_row_styles_and_escaping():
         [[NavButton("‹ <вчера>", 'rs:"x"&y'), NavButton("Сегодня", "rs:t", active=True)]]
     )
 
-    # В ряду style="link" сервер отбрасывает — обычные кнопки без стиля.
+    # Стиль у каждой кнопки: без него на iOS в тёмной теме белый текст на белой кнопке.
     assert html == (
         '<tg-button-row align="center">'
-        '<tg-button type="callback_data" data="rs:&quot;x&quot;&amp;y">‹ &lt;вчера&gt;</tg-button>'
-        '<tg-button type="callback_data" style="primary" data="rs:t">Сегодня</tg-button>'
+        '<tg-button type="callback_data" style="primary" data="rs:&quot;x&quot;&amp;y">'
+        "‹ &lt;вчера&gt;</tg-button>"
+        '<tg-button type="callback_data" style="success" data="rs:t">Сегодня</tg-button>'
         "</tg-button-row>"
     )
     assert nav_html([]) == nav_html([[]]) == ""
@@ -469,17 +538,20 @@ def test_nav_inline_layout(monkeypatch):
 
     assert html == (
         '<p><tg-button type="callback_data" style="link" data="rs:a">‹ Чт, 24</tg-button> · '
-        '<tg-button type="callback_data" style="primary" data="rs:b">Сегодня</tg-button></p>'
+        '<tg-button type="callback_data" style="success" data="rs:b">Сегодня</tg-button></p>'
     )
     check_html(html)
 
 
 def test_nav_goes_last_in_day_and_week():
     buttons = [[NavButton("Сегодня", "rs:t", active=True)], [NavButton("Вся неделя", "rs:w")]]
-    day_page = render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons)
-    week_page = render_week_html(week(MONDAY), now=at(25, 1, 22), group=GROUP, nav=buttons)
+    pages = [
+        render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons),
+        render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons, detailed=True),
+        render_week_html(week(MONDAY), now=at(25, 1, 22), group=GROUP, nav=buttons),
+    ]
 
-    for html in (day_page, week_page):
+    for html in pages:
         check_html(html)
         assert html.endswith(f"<footer>{GROUP}</footer>{nav_html(buttons)}")
 
@@ -489,4 +561,10 @@ def test_past_week_is_collapsed_without_ended_note():
 
     assert "<details open>" not in html
     assert "Эта неделя закончилась" not in html
-    assert "<mark>" not in html
+    assert "<b>" not in html
+
+
+def test_no_mark_tag_anywhere():
+    """<mark> на iOS в тёмной теме не читается — выделяем жирным."""
+    for build in CASES.values():
+        assert "<mark>" not in build()

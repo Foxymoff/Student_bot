@@ -19,12 +19,15 @@ from extra_schedule import MONTH_NAMES, WEEKDAY_NAMES, WEEKDAY_NAMES_SHORT
 
 # Атрибуты всех таблиц расписания (булевы атрибуты Rich HTML).
 TABLE_ATTRS = "compact striped"
-# Выделение ближайшей пары и сегодняшнего дня; запасной вариант — "b".
-MARK_TAG = "mark"
+# Выделение ближайшей пары и сегодняшнего дня. Не <mark>: на iOS в тёмной теме
+# жёлтая подложка остаётся светлой, а текст становится белым — не читается.
+MARK_TAG = "b"
 # Уровень заголовков дня и недели.
 HEADING_TAG = "h3"
-# Номер пары не выводим: порядок и так виден по времени начала.
-SHOW_PAIR_NUMBER = False
+# Краткий вид: первая колонка — номер пары (True) или время начала (False).
+# У допзанятий номера нет — вместо него EXTRA_NUM. Подробный вид всегда со временем.
+SHOW_PAIR_NUMBER = True
+EXTRA_NUM = "+"
 # Политика раскрытия дней недели («Эта неделя»): прошедшие свёрнуты, сегодня
 # (пока пары не закончились) и будущие раскрыты. «След. неделя» раскрыта целиком.
 WEEK_OPEN_PAST = False
@@ -34,7 +37,6 @@ WEEK_OPEN_NEXT = True
 # Суббота и воскресенье в неделе — только если в них есть пары.
 WEEKEND_ONLY_WITH_LESSONS = True
 
-DETAILS_SUMMARY = "Полные названия и преподаватели"
 TODAY_SUMMARY = "Сегодняшние пары"
 EXTRA_LABEL = "доп"
 # Онлайн-пара в колонке аудитории — как «ОНЛ» в классическом виде.
@@ -45,13 +47,16 @@ LOOKAHEAD_DAYS = 14
 WEEKDAY_ABBR: tuple[str, ...] = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
 # Навигация кнопками в теле сообщения. "row" — ряд кнопок (<tg-button-row>),
-# "inline" — ссылки в абзаце через « · ». Текущая кнопка (сегодня / эта неделя) синяя,
-# её нажатие обновляет сообщение. По эху сервера: в ряду style="link" отбрасывается
-# (primary, success, danger сохраняются), поэтому обычные кнопки ряда без стиля;
-# "link" работает только у кнопок внутри абзаца.
+# "inline" — ссылки в абзаце через « · ». Текущая кнопка (сегодня / эта неделя)
+# выделена, её нажатие обновляет сообщение.
+# - Стиль задаём каждой кнопке: без стиля на iOS в тёмной теме кнопка остаётся белой,
+#   а текст становится белым.
+# - По эху сервера в ряду style="link" отбрасывается (primary, success, danger
+#   сохраняются); "link" работает только у кнопок внутри абзаца.
 NAV_LAYOUT: Literal["row", "inline"] = "row"
 NAV_ALIGN = "center"
-NAV_ACTIVE_STYLE = "primary"
+NAV_STYLE = "primary"
+NAV_ACTIVE_STYLE = "success"
 NAV_INLINE_STYLE = "link"
 
 WeekKind = Literal["this", "next", "past"]
@@ -220,39 +225,44 @@ def _count_label(day: Day) -> str:
     return plural_pairs(pairs)
 
 
+def _pair_ref(lesson: Lesson) -> str:
+    """«1 пары» или «доп. занятия» — для статуса «начало … / конец …»."""
+    if lesson.extra or lesson.num is None:
+        return "доп. занятия"
+    return f"{lesson.num} пары"
+
+
 def _status(day: Day, now: datetime.datetime) -> str | None:
-    """Статус дня на момент генерации: начало / сейчас / следующая."""
+    """Статус на момент генерации: «начало 1 пары через …» или «конец 2 пары через …»."""
     timed = _timed(day)
     if not timed:
         return None
     today = _local_now(now).date()
     first = timed[0]
     if day.date > today or (day.date == today and now < first.start):
-        return f"начало {tg_time_rel(first.start)}"
+        return f"начало {esc(_pair_ref(first))} {tg_time_rel(first.start)}"
     if day.date < today:
         return None
     for lesson in timed:
         if lesson.start <= now < _end_of(lesson):
-            return f"сейчас {esc(lesson.short)}, конец {tg_time_rel(_end_of(lesson))}"
+            return f"конец {esc(_pair_ref(lesson))} {tg_time_rel(_end_of(lesson))}"
     for lesson in timed:
         if now < lesson.start:
-            return f"следующая {tg_time_rel(lesson.start)}"
+            return f"начало {esc(_pair_ref(lesson))} {tg_time_rel(lesson.start)}"
     return None
 
 
 def _status_line(day: Day, now: datetime.datetime) -> str:
-    """«3 пары, 09:20–15:00 · начало <tg-time …>»."""
-    text = _count_label(day)
+    """«09:20–15:00 · начало 1 пары <tg-time …>»; число пар и так видно по таблице."""
     timed = _timed(day)
+    text = ""
     if timed:
         last_end = max(_end_of(lesson) for lesson in timed)
-        text += f", {hhmm(timed[0].start)}–{hhmm(last_end)}"
+        text = f"{hhmm(timed[0].start)}–{hhmm(last_end)}"
     status = _status(day, now)
     if status:
-        text = f"{esc(text)} · {status}"
-    else:
-        text = esc(text)
-    return _wrap("p", text)
+        text = f"{text} · {status}" if text else status
+    return _wrap("p", text) if text else ""
 
 
 # ── Таблицы ───────────────────────────────────────────────
@@ -275,14 +285,17 @@ def _room_text(lesson: Lesson) -> str:
     return ONLINE_ROOM if lesson.online else lesson.room
 
 
-def _num_cell(lesson: Lesson) -> str:
+def _first_cell(lesson: Lesson) -> str:
+    """Номер пары (у допзанятия — EXTRA_NUM) или время начала — см. SHOW_PAIR_NUMBER."""
     if not SHOW_PAIR_NUMBER:
-        return ""
-    return _td("" if lesson.num is None or lesson.extra else str(lesson.num))
+        return hhmm(lesson.start)
+    if lesson.extra:
+        return EXTRA_NUM
+    return "—" if lesson.num is None else str(lesson.num)
 
 
 def _short_row(lesson: Lesson, *, marked: bool) -> str:
-    """Строка основной таблицы: начало | короткое название | аудитория."""
+    """Строка краткой таблицы: номер пары | короткое название | аудитория."""
     name = esc(lesson.short)
     if lesson.extra:
         name = _wrap("i", name)
@@ -294,19 +307,7 @@ def _short_row(lesson: Lesson, *, marked: bool) -> str:
         room = _wrap("s", room) if room else ""
     if lesson.extra:
         name += f" · {EXTRA_LABEL}"
-    return (
-        "<tr>"
-        + _num_cell(lesson)
-        + _td(hhmm(lesson.start))
-        + _td(name)
-        + _td(room, align="right")
-        + "</tr>"
-    )
-
-
-def _short_table(day: Day, now: datetime.datetime) -> str:
-    nearest = _nearest(day, now)
-    return _table([_short_row(lesson, marked=lesson is nearest) for lesson in day.lessons])
+    return "<tr>" + _td(esc(_first_cell(lesson))) + _td(name) + _td(room, align="right") + "</tr>"
 
 
 def _full_time(lesson: Lesson) -> str:
@@ -316,8 +317,8 @@ def _full_time(lesson: Lesson) -> str:
     return hhmm(lesson.start)
 
 
-def _full_row(lesson: Lesson) -> str:
-    """Строка таблицы подробностей: время | полное название, преподаватель | аудитория."""
+def _full_row(lesson: Lesson, *, marked: bool) -> str:
+    """Строка подробной таблицы: время | полное название, преподаватель | аудитория."""
     name = esc(lesson.full)
     if lesson.extra:
         name = _wrap("i", name)
@@ -335,10 +336,12 @@ def _full_row(lesson: Lesson) -> str:
         room = _wrap("s", room)
     elif lesson.room_changed and room and not lesson.online:
         room = _wrap("b", room)
+    time_text = _full_time(lesson)
+    if marked:
+        time_text = _wrap(MARK_TAG, time_text)
     return (
         "<tr>"
-        + _num_cell(lesson)
-        + _td(_full_time(lesson), valign="top")
+        + _td(time_text, valign="top")
         + _td(cell)
         + _td(room, align="right", valign="top")
         + "</tr>"
@@ -360,15 +363,19 @@ def _details(summary: str, body: str, *, is_open: bool = False) -> str:
     return f"{opening}<summary>{summary}</summary>{body}</details>"
 
 
-def _full_details(day: Day) -> str:
-    """Свёрнутый блок с полными названиями, преподавателями и ссылками."""
-    body = _table([_full_row(lesson) for lesson in day.lessons])
-    body += "".join(
-        _online_link(lesson)
-        for lesson in day.lessons
-        if lesson.online and lesson.online_url and not lesson.cancelled
-    )
-    return _details(esc(DETAILS_SUMMARY), body)
+def _day_table(day: Day, now: datetime.datetime, *, detailed: bool, links: bool = True) -> str:
+    """Одна таблица дня: краткая или подробная; в подробной — ссылки онлайн-пар под ней."""
+    nearest = _nearest(day, now)
+    if not detailed:
+        return _table([_short_row(lesson, marked=lesson is nearest) for lesson in day.lessons])
+    html_parts = [_table([_full_row(lesson, marked=lesson is nearest) for lesson in day.lessons])]
+    if links:
+        html_parts += [
+            _online_link(lesson)
+            for lesson in day.lessons
+            if lesson.online and lesson.online_url and not lesson.cancelled
+        ]
+    return "".join(html_parts)
 
 
 def _button(button: NavButton, idle_style: str | None) -> str:
@@ -382,7 +389,7 @@ def _button(button: NavButton, idle_style: str | None) -> str:
 def _nav_row(buttons: Sequence[NavButton]) -> str:
     if NAV_LAYOUT == "inline":
         return _wrap("p", " · ".join(_button(button, NAV_INLINE_STYLE) for button in buttons))
-    items = "".join(_button(button, None) for button in buttons)
+    items = "".join(_button(button, NAV_STYLE) for button in buttons)
     return f'<tg-button-row align="{NAV_ALIGN}">{items}</tg-button-row>'
 
 
@@ -408,30 +415,30 @@ def _upcoming_hint(upcoming: Day | None) -> str:
     timed = _timed(upcoming)
     if not timed:
         return esc(hint)
-    return f"{esc(hint)}, начало {tg_time_rel(timed[0].start)}"
+    first = timed[0]
+    return f"{esc(hint)}, начало {esc(_pair_ref(first))} {tg_time_rel(first.start)}"
 
 
-def _day_body(day: Day, now: datetime.datetime, upcoming: Day | None) -> str:
-    """Заголовок, статус, таблица и подробности одного дня."""
+def _day_body(day: Day, now: datetime.datetime, upcoming: Day | None, *, detailed: bool) -> str:
+    """Заголовок, статус и таблица одного дня (краткая или подробная)."""
     parts = [_heading(_day_title(day.date))]
     if not has_lessons(day):
         lead = "Все пары отменены." if day.lessons else "Пар нет."
         parts.append(_wrap("p", esc(lead) + _upcoming_hint(upcoming)))
         if day.lessons:
-            parts.append(_short_table(day, now))
-            parts.append(_full_details(day))
+            parts.append(_day_table(day, now, detailed=detailed))
         return "".join(parts)
 
     if _is_today(day, now) and _finished(day, now):
         parts.append(_wrap("p", "Пары на сегодня закончились."))
-        parts.append(_details(esc(TODAY_SUMMARY), _short_table(day, now)))
+        today_table = _day_table(day, now, detailed=detailed, links=False)
+        parts.append(_details(esc(TODAY_SUMMARY), today_table))
         if upcoming is not None and has_lessons(upcoming):
-            parts.append(_day_body(upcoming, now, None))
+            parts.append(_day_body(upcoming, now, None, detailed=detailed))
         return "".join(parts)
 
     parts.append(_status_line(day, now))
-    parts.append(_short_table(day, now))
-    parts.append(_full_details(day))
+    parts.append(_day_table(day, now, detailed=detailed))
     return "".join(parts)
 
 
@@ -456,8 +463,9 @@ def render_day_html(
     upcoming: Day | None = None,
     lead: str | None = None,
     nav: NavRows = (),
+    detailed: bool = False,
 ) -> str:
-    """Расписание на день.
+    """Расписание на день: одна таблица, краткая или подробная (detailed).
 
     upcoming — ближайший учебный день после ``day`` (для пустого дня и для «сегодня»
     после последней пары, см. needs_upcoming); lead — подпись над заголовком
@@ -466,7 +474,7 @@ def render_day_html(
     parts = []
     if lead:
         parts.append(_wrap("p", _wrap("b", esc(lead))))
-    parts.append(_day_body(day, now, upcoming))
+    parts.append(_day_body(day, now, upcoming, detailed=detailed))
     parts.append(_footer(group, updated_at, now))
     parts.append(nav_html(nav))
     return "".join(parts)
@@ -501,7 +509,7 @@ def _week_day(day: Day, now: datetime.datetime, which: WeekKind) -> str:
         is_open = WEEK_OPEN_TODAY and not _finished(day, now)
     else:
         is_open = WEEK_OPEN_FUTURE
-    return _details(summary, _short_table(day, now), is_open=is_open)
+    return _details(summary, _day_table(day, now, detailed=False), is_open=is_open)
 
 
 def render_week_html(

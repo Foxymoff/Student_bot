@@ -696,7 +696,7 @@ ClassicMessages = list[tuple[str, InlineKeyboardMarkup | None]]
 RichView = Callable[[], Awaitable[str]]
 ClassicView = Callable[[], Awaitable[ClassicMessages]]
 
-LEGACY_BUTTON_TEXT = "Подробности теперь раскрываются прямо в сообщении"
+LEGACY_BUTTON_TEXT = "Расписание обновилось — присылаю его в новом виде"
 
 
 async def get_rich_day(
@@ -738,6 +738,7 @@ async def render_rich_day(
     *,
     lead: str | None = None,
     nav: NavRows = (),
+    detailed: bool = False,
 ) -> str:
     """Rich HTML на день; ближайший учебный день ищем, только если он нужен."""
     now = app_now()
@@ -745,7 +746,9 @@ async def render_rich_day(
     upcoming = None
     if needs_upcoming(day, now):
         upcoming = await find_upcoming_day(group_name, target_date, sg_inf, sg_eng, extra_choices)
-    return render_day_html(day, now=now, group=group_name, upcoming=upcoming, lead=lead, nav=nav)
+    return render_day_html(
+        day, now=now, group=group_name, upcoming=upcoming, lead=lead, nav=nav, detailed=detailed
+    )
 
 
 async def render_rich_week(
@@ -841,8 +844,10 @@ async def send_schedule(
 # под сообщением (на случай клиентов, которые не показывают кнопки в теле).
 NAV_IN_BODY = True
 NAV_PREFIX = "rs"
-NAV_DAY = "d"
+NAV_DAY = "d"  # день, краткая таблица
+NAV_DAY_FULL = "f"  # день, подробная таблица
 NAV_WEEK = "w"
+NAV_KINDS = (NAV_DAY, NAV_DAY_FULL, NAV_WEEK)
 CLASSIC_NAV_TEXT = "Включён классический вид — присылаю расписание обычным сообщением"
 
 
@@ -854,7 +859,7 @@ def nav_data(kind: str, target_date: datetime.date, group_name: str) -> str:
 def parse_nav_data(data: str) -> tuple[str, datetime.date, str] | None:
     """Разобрать callback_data навигации; None — устаревшая или чужая кнопка."""
     parts = data.split(":", 3)
-    if len(parts) != 4 or parts[0] != NAV_PREFIX or parts[1] not in (NAV_DAY, NAV_WEEK):
+    if len(parts) != 4 or parts[0] != NAV_PREFIX or parts[1] not in NAV_KINDS:
         return None
     try:
         target_date = datetime.date.fromisoformat(parts[2])
@@ -871,18 +876,27 @@ def _nav_day_label(target_date: datetime.date) -> str:
 
 
 def day_nav(
-    target_date: datetime.date, group_name: str, today: datetime.date
+    target_date: datetime.date, group_name: str, today: datetime.date, *, detailed: bool = False
 ) -> list[list[NavButton]]:
-    """‹ вчера | Сегодня | завтра ›, ниже — «Вся неделя» (неделя показанного дня)."""
+    """‹ вчера | Сегодня | завтра ›, ниже — «Вся неделя» и «Подробнее» / «Кратко».
+
+    Листание дней сохраняет вид таблицы (краткий или подробный).
+    """
+    kind = NAV_DAY_FULL if detailed else NAV_DAY
     prev_day = target_date - datetime.timedelta(days=1)
     next_day = target_date + datetime.timedelta(days=1)
+    toggle = (
+        NavButton("Кратко", nav_data(NAV_DAY, target_date, group_name))
+        if detailed
+        else NavButton("Подробнее", nav_data(NAV_DAY_FULL, target_date, group_name))
+    )
     return [
         [
-            NavButton(f"‹ {_nav_day_label(prev_day)}", nav_data(NAV_DAY, prev_day, group_name)),
-            NavButton("Сегодня", nav_data(NAV_DAY, today, group_name), active=target_date == today),
-            NavButton(f"{_nav_day_label(next_day)} ›", nav_data(NAV_DAY, next_day, group_name)),
+            NavButton(f"‹ {_nav_day_label(prev_day)}", nav_data(kind, prev_day, group_name)),
+            NavButton("Сегодня", nav_data(kind, today, group_name), active=target_date == today),
+            NavButton(f"{_nav_day_label(next_day)} ›", nav_data(kind, next_day, group_name)),
         ],
-        [NavButton("Вся неделя", nav_data(NAV_WEEK, _monday(target_date), group_name))],
+        [NavButton("Вся неделя", nav_data(NAV_WEEK, _monday(target_date), group_name)), toggle],
     ]
 
 
@@ -891,7 +905,7 @@ def _monday(target_date: datetime.date) -> datetime.date:
 
 
 def week_nav(monday: datetime.date, group_name: str, today: datetime.date) -> list[list[NavButton]]:
-    """‹ Пред. | Эта неделя | След. ›, ниже — «К дню» (сегодня или понедельник недели)."""
+    """‹ Пред. | Эта неделя | След. ›, ниже — «Ко дню» (сегодня или понедельник недели)."""
     this_monday = _monday(today)
     week = datetime.timedelta(weeks=1)
     day = today if monday == this_monday else monday
@@ -905,7 +919,7 @@ def week_nav(monday: datetime.date, group_name: str, today: datetime.date) -> li
             ),
             NavButton("След. ›", nav_data(NAV_WEEK, monday + week, group_name)),
         ],
-        [NavButton("К дню", nav_data(NAV_DAY, day, group_name))],
+        [NavButton("Ко дню", nav_data(NAV_DAY, day, group_name))],
     ]
 
 
@@ -946,16 +960,24 @@ def day_views(
     group_name: str,
     target_date: datetime.date,
     *,
+    detailed: bool = False,
     lead: str | None = None,
     classic_header: str | None = None,
 ) -> ScheduleViews:
-    """День: rich с навигацией или классика с кнопкой «Подробнее»."""
+    """День: rich с навигацией (краткий или подробный) или классика с «Подробнее»."""
     sg_inf, sg_eng, compact, extra_keys = _viewer(user, group_name)
-    nav, markup = _nav_parts(day_nav(target_date, group_name, app_today()))
+    nav, markup = _nav_parts(day_nav(target_date, group_name, app_today(), detailed=detailed))
 
     async def rich() -> str:
         return await render_rich_day(
-            group_name, target_date, sg_inf, sg_eng, extra_keys, lead=lead, nav=nav
+            group_name,
+            target_date,
+            sg_inf,
+            sg_eng,
+            extra_keys,
+            lead=lead,
+            nav=nav,
+            detailed=detailed,
         )
 
     async def classic() -> ClassicMessages:
@@ -1008,19 +1030,15 @@ async def _cleanup(message: Message, state: FSMContext) -> None:
 
 async def _update_period_header(message: Message, state: FSMContext, label: str) -> None:
     """Изменить текст сообщения «Выбери период:» на выбранный период."""
-    await _edit_period_header(message.bot, message.chat.id, state, label)
-
-
-async def _edit_period_header(bot: Bot, chat_id: int, state: FSMContext, label: str) -> None:
     data = await state.get_data()
     msg_id = data.get("last_bot_msg")
     if msg_id:
         try:
             # Только именованные аргументы: в aiogram 3.x второй позиционный —
             # business_connection_id, а не chat_id.
-            await bot.edit_message_text(
+            await message.bot.edit_message_text(
                 label,
-                chat_id=chat_id,
+                chat_id=message.chat.id,
                 message_id=msg_id,
                 parse_mode=HTML_PARSE_MODE,
             )
@@ -1079,7 +1097,7 @@ async def _open_live_schedule(
     """
     context = {"schedule_context": "other", "schedule_group_name": group_name} if other else {}
     header = await message.answer(
-        _period_header("Сегодня:", context), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
+        _period_header("Расписание:", context), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
     )
     views = day_views(user, group_name, app_today())
     sent = await _send_views(message.bot, message.chat.id, user, views)
@@ -1289,7 +1307,7 @@ async def on_schedule_next_week(message: Message, state: FSMContext) -> None:
 
 
 async def _answer_legacy_button(
-    callback: CallbackQuery, state: FSMContext, user: dict, date_iso: str
+    callback: CallbackQuery, state: FSMContext, user: dict, date_iso: str, *, detailed: bool
 ) -> None:
     """«Подробнее / Свернуть» на старом сообщении у пользователя с новым видом.
 
@@ -1310,7 +1328,8 @@ async def _answer_legacy_button(
     except ValueError:
         return
     data = await state.get_data()
-    sent = await _send_views(callback.bot, old.chat.id, user, _day_views(user, data, target_date))
+    views = day_views(user, _schedule_group_name(user, data), target_date, detailed=detailed)
+    sent = await _send_views(callback.bot, old.chat.id, user, views)
     await add_ui_messages(state, [msg.message_id for msg in sent])
 
 
@@ -1323,7 +1342,7 @@ async def on_schedule_detail(callback: CallbackQuery, state: FSMContext) -> None
         await callback.answer("Открой /start", show_alert=True)
         return
     if rich_enabled(user):
-        await _answer_legacy_button(callback, state, user, date_iso)
+        await _answer_legacy_button(callback, state, user, date_iso, detailed=True)
         return
     target_date = datetime.date.fromisoformat(date_iso)
     data = await state.get_data()
@@ -1346,7 +1365,7 @@ async def on_schedule_collapse(callback: CallbackQuery, state: FSMContext) -> No
         await callback.answer("Открой /start", show_alert=True)
         return
     if rich_enabled(user):
-        await _answer_legacy_button(callback, state, user, date_iso)
+        await _answer_legacy_button(callback, state, user, date_iso, detailed=False)
         return
     target_date = datetime.date.fromisoformat(date_iso)
     data = await state.get_data()
@@ -1363,22 +1382,6 @@ async def on_schedule_collapse(callback: CallbackQuery, state: FSMContext) -> No
     await callback.answer()
 
 
-def _period_label(kind: str, target_date: datetime.date, today: datetime.date) -> str:
-    """Подпись шапки периода для показанного дня или недели."""
-    if kind == NAV_DAY:
-        if target_date == today:
-            return "Сегодня:"
-        if target_date == today + datetime.timedelta(days=1):
-            return "Завтра:"
-        return "Расписание:"
-    this_monday = _monday(today)
-    if target_date == this_monday:
-        return "Эта неделя:"
-    if target_date == this_monday + datetime.timedelta(weeks=1):
-        return "След. неделя:"
-    return "Неделя:"
-
-
 @router.callback_query(F.data.startswith(f"{NAV_PREFIX}:"))
 async def on_schedule_nav(callback: CallbackQuery, state: FSMContext) -> None:
     """Навигация в живом сообщении: перерисовать день или неделю на месте."""
@@ -1391,10 +1394,10 @@ async def on_schedule_nav(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Открой /start", show_alert=True)
         return
     kind, target_date, group_name = parsed
-    if kind == NAV_DAY:
-        views = day_views(user, group_name, target_date)
-    else:
+    if kind == NAV_WEEK:
         views = week_views(user, group_name, _monday(target_date))
+    else:
+        views = day_views(user, group_name, target_date, detailed=kind == NAV_DAY_FULL)
     old = callback.message
     if old is None:
         await callback.answer("Сообщение недоступно — открой расписание заново")
@@ -1437,10 +1440,6 @@ async def on_schedule_nav(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await callback.answer()
-    data = await state.get_data()
-    if data.get("last_schedule_msg") == old.message_id:
-        label = _period_label(kind, target_date, app_today())
-        await _edit_period_header(callback.bot, old.chat.id, state, _period_header(label, data))
 
 
 def _split_text(text: str, max_len: int) -> list[str]:

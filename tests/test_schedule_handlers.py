@@ -194,18 +194,23 @@ async def test_today_button_sends_one_rich_message(state, monkeypatch, fixed_dat
     await schedule.on_schedule_today(message, state)
 
     html = message.bot.send_rich_message.await_args.kwargs["rich_message"].html
-    assert html.startswith("<h3>Пятница, 25 сентября</h3><p>3 пары, 09:20–15:00 · начало")
+    assert html.startswith("<h3>Пятница, 25 сентября</h3><p>09:20–15:00 · начало 1 пары")
     assert message.bot.send_rich_message.await_args.kwargs["reply_markup"] is None
-    # Навигация — кнопками в теле сообщения, «Сегодня» — текущая.
+    # Навигация — кнопками в теле сообщения, «Сегодня» — текущая (зелёная).
     assert html.endswith(
         '<tg-button-row align="center">'
-        '<tg-button type="callback_data" data="rs:d:2026-09-24:ИСП-25-2">‹ Чт, 24</tg-button>'
-        '<tg-button type="callback_data" style="primary" data="rs:d:2026-09-25:ИСП-25-2">'
+        '<tg-button type="callback_data" style="primary" data="rs:d:2026-09-24:ИСП-25-2">'
+        "‹ Чт, 24</tg-button>"
+        '<tg-button type="callback_data" style="success" data="rs:d:2026-09-25:ИСП-25-2">'
         "Сегодня</tg-button>"
-        '<tg-button type="callback_data" data="rs:d:2026-09-26:ИСП-25-2">Сб, 26 ›</tg-button>'
+        '<tg-button type="callback_data" style="primary" data="rs:d:2026-09-26:ИСП-25-2">'
+        "Сб, 26 ›</tg-button>"
         "</tg-button-row>"
         '<tg-button-row align="center">'
-        '<tg-button type="callback_data" data="rs:w:2026-09-21:ИСП-25-2">Вся неделя</tg-button>'
+        '<tg-button type="callback_data" style="primary" data="rs:w:2026-09-21:ИСП-25-2">'
+        "Вся неделя</tg-button>"
+        '<tg-button type="callback_data" style="primary" data="rs:f:2026-09-25:ИСП-25-2">'
+        "Подробнее</tg-button>"
         "</tg-button-row>"
     )
     data = await state.get_data()
@@ -227,7 +232,7 @@ async def test_week_button_sends_one_rich_message(state, monkeypatch, fixed_data
     message.bot.send_rich_message.assert_awaited_once()
     html = message.bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert html.startswith("<h3>Неделя 21–26 сентября</h3>")
-    assert "<details open><summary><mark>Пт, 25 сентября · сегодня</mark></summary>" in html
+    assert "<details open><summary><b>Пт, 25 сентября · сегодня</b></summary>" in html
 
 
 # ── Старые кнопки «Подробнее / Свернуть» ──────────────────
@@ -268,6 +273,8 @@ async def test_legacy_button_for_rich_user(state, monkeypatch, fixed_data, prefi
     callback.message.edit_text.assert_not_awaited()  # старое сообщение в rich не конвертируем
     html = callback.bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert html.startswith("<h3>Пятница, 25 сентября</h3>")
+    # «Подробнее» присылает подробный вид, «Свернуть» — краткий.
+    assert ('valign="top"' in html) == (prefix == "schedule_detail")
     assert (await state.get_data())["ui_msg_ids"] == [77, 50, 101]
 
 
@@ -426,6 +433,7 @@ def _flat(rows):
 
 def test_day_and_week_nav():
     day = schedule.day_nav(datetime.date(2026, 9, 27), GROUP, FRIDAY)
+    full = schedule.day_nav(datetime.date(2026, 9, 27), GROUP, FRIDAY, detailed=True)
     week = schedule.week_nav(datetime.date(2026, 9, 21), GROUP, FRIDAY)
     next_week = schedule.week_nav(datetime.date(2026, 9, 28), GROUP, FRIDAY)
 
@@ -434,14 +442,23 @@ def test_day_and_week_nav():
         ("Сегодня", False),
         ("Пн, 28 ›", False),
         ("Вся неделя", False),
+        ("Подробнее", False),
     ]
     assert day[0][1].data == "rs:d:2026-09-25:ИСП-25-2"
     assert day[1][0].data == "rs:w:2026-09-21:ИСП-25-2"  # неделя показанного дня
+    assert day[1][1].data == "rs:f:2026-09-27:ИСП-25-2"  # тот же день подробно
+    # Подробный вид: листание остаётся подробным, переключатель — «Кратко».
+    assert [b.data for b in full[0]] == [
+        "rs:f:2026-09-26:ИСП-25-2",
+        "rs:f:2026-09-25:ИСП-25-2",
+        "rs:f:2026-09-28:ИСП-25-2",
+    ]
+    assert (full[1][1].text, full[1][1].data) == ("Кратко", "rs:d:2026-09-27:ИСП-25-2")
     assert _flat(week) == [
         ("‹ Пред.", False),
         ("Эта неделя", True),
         ("След. ›", False),
-        ("К дню", False),
+        ("Ко дню", False),
     ]
     assert week[0][2].data == "rs:w:2026-09-28:ИСП-25-2"
     assert week[1][0].data == "rs:d:2026-09-25:ИСП-25-2"  # эта неделя → сегодня
@@ -463,7 +480,7 @@ def test_nav_as_keyboard_when_not_in_body(monkeypatch, fixed_data):
     rows = views.markup.inline_keyboard
     assert [[(b.text, b.style) for b in row] for row in rows] == [
         [("‹ Чт, 24", None), ("Сегодня", "primary"), ("Сб, 26 ›", None)],
-        [("Вся неделя", None)],
+        [("Вся неделя", None), ("Подробнее", None)],
     ]
 
 
@@ -488,19 +505,25 @@ async def test_nav_edits_message_in_place(state, fixed_data, rich_user):
 
     await schedule.on_schedule_nav(callback, state)
 
-    edits = callback.bot.edit_message_text.await_args_list
-    rich_edit, header_edit = edits
+    # Правится только само расписание; шапка «Расписание» не меняется.
+    (rich_edit,) = callback.bot.edit_message_text.await_args_list
     assert rich_edit.kwargs["chat_id"] == 9 and rich_edit.kwargs["message_id"] == 50
     html = rich_edit.kwargs["rich_message"].html
     assert html.startswith("<h3>Суббота, 26 сентября</h3>")
-    assert (
-        '<tg-button type="callback_data" data="rs:d:2026-09-25:ИСП-25-2">Сегодня</tg-button>'
-        in html
-    )
-    assert header_edit.args[0] == "<b>Завтра</b>"
-    assert header_edit.kwargs["message_id"] == 77
+    assert 'style="primary" data="rs:d:2026-09-25:ИСП-25-2">Сегодня</tg-button>' in html
     callback.answer.assert_awaited_once_with()
     callback.bot.send_rich_message.assert_not_awaited()
+
+
+async def test_nav_detailed_toggle_renders_full_table(state, fixed_data, rich_user):
+    callback = _nav_callback("rs:f:2026-09-25:ИСП-25-2")
+
+    await schedule.on_schedule_nav(callback, state)
+
+    html = callback.bot.edit_message_text.await_args.kwargs["rich_message"].html
+    assert html.count("<table") == 1
+    assert '<td valign="top"><b>09:20–10:50</b></td>' in html
+    assert 'data="rs:d:2026-09-25:ИСП-25-2">Кратко</tg-button>' in html
 
 
 async def test_nav_week_uses_monday_and_past_kind(state, fixed_data, rich_user):
@@ -571,7 +594,7 @@ async def test_daily_notify_rich_has_nav(daily):
 
     html = bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert "Сб, 26 ›</tg-button></tg-button-row>" in html
-    assert html.endswith("Вся неделя</tg-button></tg-button-row>")
+    assert html.endswith("Подробнее</tg-button></tg-button-row>")
 
 
 # ── Вход в расписание: сразу сегодняшний день ────────────
@@ -590,7 +613,7 @@ async def test_schedule_menu_opens_today_for_rich_user(state, fixed_data, rich_u
     await schedule.on_schedule_menu(message, state)
 
     header_text = message.answer.await_args.args[0]
-    assert header_text == "<b>Сегодня</b>"
+    assert header_text == "<b>Расписание</b>"
     assert message.answer.await_args.kwargs["reply_markup"] == schedule.back_kb()
     html = message.bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert html.startswith("<h3>Пятница, 25 сентября</h3>")
@@ -634,7 +657,7 @@ async def test_other_group_opens_today_without_extras(state, monkeypatch, fixed_
 
     await schedule.on_other_group_selected(callback, state)
 
-    assert callback.message.answer.await_args.args[0] == "<b>МР-25</b>\n\nСегодня"
+    assert callback.message.answer.await_args.args[0] == "<b>МР-25</b>\n\nРасписание"
     html = callback.bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert "<footer>МР-25</footer>" in html
     assert 'data="rs:w:2026-09-21:МР-25">Вся неделя' in html

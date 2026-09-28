@@ -137,7 +137,7 @@ MONDAY = datetime.date(2026, 9, 21)
 CHANGES = [
     {"lesson_num": 1, "subgroup": None, "override_type": "cancel"},
     {"lesson_num": 2, "subgroup": None, "override_type": "room_change", "new_value": "420"},
-    {"lesson_num": 2, "subgroup": None, "override_type": "note", "new_value": "Тест"},
+    {"lesson_num": 2, "subgroup": None, "override_type": "note", "new_value": "Принести ноутбук"},
     {
         "lesson_num": 3,
         "subgroup": None,
@@ -145,24 +145,41 @@ CHANGES = [
         "new_value": "https://meet.example.com/a?b=1&c=2",
     },
 ]
+# Староста переименовал пару и добавил пару на пустой слот (4-я, 15:10).
+ADDED_AND_RENAMED = [
+    {"lesson_num": 2, "subgroup": None, "override_type": "rename", "new_value": "История России"},
+    {"lesson_num": 4, "subgroup": None, "override_type": "add", "new_value": "Пересдача"},
+]
+ALL_CANCELLED = [
+    {"lesson_num": n, "subgroup": None, "override_type": "cancel"} for n in range(1, 4)
+]
 
 
-def day_html(date: datetime.date, now: datetime.datetime, *, nav=(), **kwargs) -> str:
+def day_html(
+    date: datetime.date, now: datetime.datetime, *, nav=(), detailed: bool = False, **kwargs
+) -> str:
     """День так же, как собирает бот: с ближайшим учебным днём, если он нужен."""
     target = day(date, **kwargs)
     nearest = upcoming(date) if render_rich.needs_upcoming(target, now) else None
-    return render_day_html(target, now=now, group=GROUP, upcoming=nearest, nav=nav)
+    return render_day_html(
+        target, now=now, group=GROUP, upcoming=nearest, nav=nav, detailed=detailed
+    )
 
 
-def today_html(now: datetime.datetime) -> str:
-    return day_html(now.date(), now)
+def today_html(now: datetime.datetime, *, detailed: bool = False) -> str:
+    return day_html(now.date(), now, detailed=detailed)
 
 
 def week_html(monday: datetime.date, now: datetime.datetime, which: str, nav=()) -> str:
     return render_week_html(week(monday), now=now, group=GROUP, which=which, nav=nav)
 
 
+def _full(date: datetime.date, now: datetime.datetime, **kwargs) -> str:
+    return day_html(date, now, detailed=True, **kwargs)
+
+
 CASES: dict[str, Callable[[], str]] = {
+    # Краткий вид: номер пары | короткое название | аудитория.
     "day_today_before_first": lambda: today_html(at(25, 1, 22)),
     "day_today_second_pair": lambda: today_html(at(25, 11, 30)),
     "day_today_break": lambda: today_html(at(25, 10, 55)),
@@ -172,14 +189,29 @@ CASES: dict[str, Callable[[], str]] = {
     "day_one_pair": lambda: day_html(SATURDAY, at(25, 20, 0)),
     "day_with_extra": lambda: day_html(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA]),
     "day_with_changes": lambda: day_html(FRIDAY, at(25, 1, 22), overrides=CHANGES),
+    # Подробный вид: время | полное название, преподаватель | аудитория.
+    "full_today_before_first": lambda: today_html(at(25, 1, 22), detailed=True),
+    "full_today_second_pair": lambda: today_html(at(25, 11, 30), detailed=True),
+    "full_today_break": lambda: today_html(at(25, 10, 55), detailed=True),
+    "full_today_after_last": lambda: today_html(at(25, 16, 0), detailed=True),
+    "full_tomorrow": lambda: _full(FRIDAY, at(24, 20, 0)),
+    "full_one_pair": lambda: _full(SATURDAY, at(25, 20, 0)),
+    "full_with_extra": lambda: _full(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA]),
+    "full_with_changes": lambda: _full(FRIDAY, at(25, 1, 22), overrides=CHANGES),
+    "full_added_and_renamed": lambda: _full(FRIDAY, at(25, 1, 22), overrides=ADDED_AND_RENAMED),
+    "full_all_cancelled": lambda: _full(FRIDAY, at(25, 1, 22), overrides=ALL_CANCELLED),
+    # Неделя аккордеоном.
     "week_this_friday": lambda: week_html(MONDAY, at(25, 1, 22), "this"),
     "week_this_saturday": lambda: week_html(MONDAY, at(26, 14, 0), "this"),
     "week_this_sunday": lambda: week_html(MONDAY, at(27, 12, 0), "this"),
     "week_next": lambda: week_html(MONDAY, at(18, 12, 0), "next"),
     "week_month_boundary": lambda: week_html(datetime.date(2026, 9, 28), at(30, 12, 0), "this"),
-    # Живое сообщение: кнопки навигации в теле, прошедшая неделя целиком свёрнута.
+    # Живое сообщение: кнопки навигации в теле.
     "day_with_nav": lambda: day_html(
         FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY)
+    ),
+    "full_with_nav": lambda: _full(
+        FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY, detailed=True)
     ),
     "week_past_with_nav": lambda: week_html(
         datetime.date(2026, 9, 14),
