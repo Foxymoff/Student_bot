@@ -3,6 +3,7 @@
 """
 
 from aiogram.types import (
+    DisabledButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -10,7 +11,7 @@ from aiogram.types import (
 )
 
 from config import COURSES, ENG_SUBGROUPS, EXTRA_ENABLED, GROUPS
-from render_rich import NavRows
+from render_rich import NavButton, NavRows
 
 # Цвет главных reply-кнопок (Bot API 9.4, KeyboardButton.style): "primary" — синий,
 # None — стиль приложения. Старые клиенты стиль игнорируют.
@@ -148,20 +149,17 @@ def schedule_detail_kb(date_iso: str) -> InlineKeyboardMarkup:
     )
 
 
+def _nav_inline_button(button: NavButton) -> InlineKeyboardButton:
+    if button.disabled:
+        return InlineKeyboardButton(text=button.text, disabled=DisabledButton())
+    style = "primary" if button.accent else None
+    return InlineKeyboardButton(text=button.text, callback_data=button.data, style=style)
+
+
 def schedule_nav_kb(rows: NavRows) -> InlineKeyboardMarkup:
-    """Навигация rich-расписания inline-кнопками; текущая кнопка — синяя (style)."""
+    """Навигация rich-расписания inline-кнопками: «Сегодня» синяя, текущая — неактивна."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=button.text,
-                    callback_data=button.data,
-                    style="primary" if button.active else None,
-                )
-                for button in row
-            ]
-            for row in rows
-        ]
+        inline_keyboard=[[_nav_inline_button(button) for button in row] for row in rows]
     )
 
 

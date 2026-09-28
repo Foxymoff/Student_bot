@@ -46,18 +46,20 @@ LOOKAHEAD_DAYS = 14
 
 WEEKDAY_ABBR: tuple[str, ...] = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
-# Навигация кнопками в теле сообщения. "row" — ряд кнопок (<tg-button-row>),
-# "inline" — ссылки в абзаце через « · ». Текущая кнопка (сегодня / эта неделя)
-# выделена, её нажатие обновляет сообщение.
-# - Стиль задаём каждой кнопке: без стиля на iOS в тёмной теме кнопка остаётся белой,
-#   а текст становится белым.
-# - По эху сервера в ряду style="link" отбрасывается (primary, success, danger
-#   сохраняются); "link" работает только у кнопок внутри абзаца.
-NAV_LAYOUT: Literal["row", "inline"] = "row"
-NAV_ALIGN = "center"
-NAV_STYLE = "primary"
-NAV_ACTIVE_STYLE = "success"
-NAV_INLINE_STYLE = "link"
+# Навигация кнопками в теле сообщения.
+# - "inline" (по умолчанию) — кнопки в строке текста через « · »: обычные — ссылками
+#   (style="link"), заливка только у кнопки-акцента («Сегодня», style="primary").
+#   Текущий день или неделя — неактивная кнопка (type="disabled").
+# - "row" — ряд кнопок (<tg-button-row>). В ряду style="link" сервер отбрасывает
+#   (проверено по эху), а кнопки без стиля на iOS в тёмной теме белые с белым текстом,
+#   поэтому там обычные кнопки primary, акцент success.
+NAV_LAYOUT: Literal["row", "inline"] = "inline"
+NAV_SEPARATOR = " · "
+NAV_LINK_STYLE = "link"
+NAV_ACCENT_STYLE = "primary"
+NAV_ROW_ALIGN = "center"
+NAV_ROW_STYLE = "primary"
+NAV_ROW_ACCENT_STYLE = "success"
 
 WeekKind = Literal["this", "next", "past"]
 
@@ -94,11 +96,12 @@ class Day:
 
 @dataclass(frozen=True)
 class NavButton:
-    """Кнопка навигации: callback_data до 64 байт, active — текущий день или неделя."""
+    """Кнопка навигации: callback_data до 64 байт; accent — с заливкой, disabled — неактивна."""
 
     text: str
-    data: str
-    active: bool = False
+    data: str = ""
+    accent: bool = False
+    disabled: bool = False
 
 
 # Ряды кнопок навигации: каждый ряд — отдельный <tg-button-row> (или абзац).
@@ -233,14 +236,15 @@ def _pair_ref(lesson: Lesson) -> str:
 
 
 def _status(day: Day, now: datetime.datetime) -> str | None:
-    """Статус на момент генерации: «начало 1 пары через …» или «конец 2 пары через …»."""
+    """Статус на момент генерации: «начало через …» (до первой пары), дальше
+    «конец 2 пары через …» и «начало 3 пары через …» на перемене."""
     timed = _timed(day)
     if not timed:
         return None
     today = _local_now(now).date()
     first = timed[0]
     if day.date > today or (day.date == today and now < first.start):
-        return f"начало {esc(_pair_ref(first))} {tg_time_rel(first.start)}"
+        return f"начало {tg_time_rel(first.start)}"
     if day.date < today:
         return None
     for lesson in timed:
@@ -253,7 +257,7 @@ def _status(day: Day, now: datetime.datetime) -> str | None:
 
 
 def _status_line(day: Day, now: datetime.datetime) -> str:
-    """«09:20–15:00 · начало 1 пары <tg-time …>»; число пар и так видно по таблице."""
+    """«09:20–15:00 · начало <tg-time …>»; число пар и так видно по таблице."""
     timed = _timed(day)
     text = ""
     if timed:
@@ -310,11 +314,14 @@ def _short_row(lesson: Lesson, *, marked: bool) -> str:
     return "<tr>" + _td(esc(_first_cell(lesson))) + _td(name) + _td(room, align="right") + "</tr>"
 
 
-def _full_time(lesson: Lesson) -> str:
-    """«09:20–10:50» (или только начало, если конец неизвестен)."""
+def _full_time(lesson: Lesson, *, marked: bool) -> str:
+    """Начало и конец в две строки одной ячейки — узкая колонка, названия меньше переносятся."""
+    lines = [hhmm(lesson.start)]
     if lesson.start and lesson.end:
-        return f"{hhmm(lesson.start)}–{hhmm(lesson.end)}"
-    return hhmm(lesson.start)
+        lines.append(hhmm(lesson.end))
+    if marked:
+        lines = [_wrap(MARK_TAG, line) for line in lines]
+    return "<br>".join(lines)
 
 
 def _full_row(lesson: Lesson, *, marked: bool) -> str:
@@ -336,9 +343,7 @@ def _full_row(lesson: Lesson, *, marked: bool) -> str:
         room = _wrap("s", room)
     elif lesson.room_changed and room and not lesson.online:
         room = _wrap("b", room)
-    time_text = _full_time(lesson)
-    if marked:
-        time_text = _wrap(MARK_TAG, time_text)
+    time_text = _full_time(lesson, marked=marked)
     return (
         "<tr>"
         + _td(time_text, valign="top")
@@ -378,19 +383,27 @@ def _day_table(day: Day, now: datetime.datetime, *, detailed: bool, links: bool 
     return "".join(html_parts)
 
 
-def _button(button: NavButton, idle_style: str | None) -> str:
-    style = NAV_ACTIVE_STYLE if button.active else idle_style
+def _button(button: NavButton, style: str | None) -> str:
+    text = esc(button.text)
+    if button.disabled:
+        return f'<tg-button type="disabled">{text}</tg-button>'
     style_attr = f' style="{style}"' if style else ""
     data = esc(button.data, quote=True)
-    text = esc(button.text)
     return f'<tg-button type="callback_data"{style_attr} data="{data}">{text}</tg-button>'
 
 
 def _nav_row(buttons: Sequence[NavButton]) -> str:
     if NAV_LAYOUT == "inline":
-        return _wrap("p", " · ".join(_button(button, NAV_INLINE_STYLE) for button in buttons))
-    items = "".join(_button(button, NAV_STYLE) for button in buttons)
-    return f'<tg-button-row align="{NAV_ALIGN}">{items}</tg-button-row>'
+        items = [
+            _button(button, NAV_ACCENT_STYLE if button.accent else NAV_LINK_STYLE)
+            for button in buttons
+        ]
+        return _wrap("p", NAV_SEPARATOR.join(items))
+    items = [
+        _button(button, NAV_ROW_ACCENT_STYLE if button.accent else NAV_ROW_STYLE)
+        for button in buttons
+    ]
+    return f'<tg-button-row align="{NAV_ROW_ALIGN}">{"".join(items)}</tg-button-row>'
 
 
 def nav_html(rows: NavRows) -> str:
@@ -415,8 +428,7 @@ def _upcoming_hint(upcoming: Day | None) -> str:
     timed = _timed(upcoming)
     if not timed:
         return esc(hint)
-    first = timed[0]
-    return f"{esc(hint)}, начало {esc(_pair_ref(first))} {tg_time_rel(first.start)}"
+    return f"{esc(hint)}, начало {tg_time_rel(timed[0].start)}"
 
 
 def _day_body(day: Day, now: datetime.datetime, upcoming: Day | None, *, detailed: bool) -> str:
@@ -520,18 +532,19 @@ def render_week_html(
     updated_at: datetime.datetime | None = None,
     which: WeekKind = "this",
     nav: NavRows = (),
+    lead: str | None = None,
 ) -> str:
     """Неделя аккордеоном: день — свёрнутый или раскрытый details.
 
     which: "this" — текущая неделя, "next" — будущая (всё раскрыто),
-    "past" — прошедшая (всё свёрнуто); nav — кнопки в конце.
+    "past" — прошедшая (всё свёрнуто); nav — кнопки в конце; lead — подпись сверху.
     """
     shown = [
         day
         for day in sorted(days, key=lambda d: d.date)
         if day.date.weekday() < 5 or not WEEKEND_ONLY_WITH_LESSONS or day.lessons
     ]
-    parts = []
+    parts = [_wrap("p", _wrap("b", esc(lead)))] if lead else []
     if shown:
         parts.append(_heading(f"Неделя {_date_range(shown[0].date, shown[-1].date)}"))
     today = _local_now(now).date()

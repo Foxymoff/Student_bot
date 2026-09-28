@@ -15,7 +15,13 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InputRichMessage, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InputRichMessage,
+    Message,
+    ReplyKeyboardRemove,
+)
 
 from config import (
     APP_TIMEZONE,
@@ -33,7 +39,7 @@ from config import (
 )
 from database import get_overrides, get_user
 from extra_schedule import get_extras_for_date, parse_extra_choices
-from handlers.start import push_nav
+from handlers.start import _replace_with_main_menu, push_nav
 from keyboards import (
     back_kb,
     course_select_kb,
@@ -752,6 +758,7 @@ async def render_rich_week(
     extra_choices: list[str] | None,
     which: WeekKind,
     nav: NavRows = (),
+    lead: str | None = None,
 ) -> str:
     """Rich HTML на неделю с понедельника."""
     days = [
@@ -760,7 +767,7 @@ async def render_rich_week(
         )
         for i in range(7)
     ]
-    return render_week_html(days, now=app_now(), group=group_name, which=which, nav=nav)
+    return render_week_html(days, now=app_now(), group=group_name, which=which, nav=nav, lead=lead)
 
 
 async def classic_week_messages(
@@ -795,13 +802,14 @@ async def send_schedule(
     *,
     rich: RichView,
     classic: ClassicView,
-    rich_markup: InlineKeyboardMarkup | None = None,
+    rich_markup: InlineKeyboardMarkup | ReplyKeyboardRemove | None = None,
     disable_notification: bool | None = None,
 ) -> list[Message]:
     """Отправить расписание в новом виде, а если он выключен или отклонён — в классическом.
 
     Откатываемся только на TelegramBadRequest (сервер не принял разметку); сетевые
-    и прочие ошибки пробрасываем. rich_markup — навигация клавиатурой (NAV_IN_BODY=False).
+    и прочие ошибки пробрасываем. rich_markup — навигация клавиатурой (NAV_IN_BODY=False)
+    или ReplyKeyboardRemove.
     """
     if rich_enabled(user):
         html = await rich()
@@ -841,6 +849,7 @@ NAV_DAY = "d"  # день, краткая таблица
 NAV_DAY_FULL = "f"  # день, подробная таблица
 NAV_WEEK = "w"
 NAV_KINDS = (NAV_DAY, NAV_DAY_FULL, NAV_WEEK)
+SCHEDULE_BACK = "schedule_back"
 CLASSIC_NAV_TEXT = "Включён классический вид — присылаю расписание обычным сообщением"
 
 
@@ -868,16 +877,25 @@ def _nav_day_label(target_date: datetime.date) -> str:
     return f"{WEEKDAY_ABBR[target_date.weekday()]}, {target_date.day}"
 
 
+def _back_button() -> NavButton:
+    return NavButton("Назад", SCHEDULE_BACK)
+
+
 def day_nav(
     target_date: datetime.date, group_name: str, today: datetime.date, *, detailed: bool = False
 ) -> list[list[NavButton]]:
-    """‹ вчера | Сегодня | завтра ›, ниже — «Вся неделя» и «Подробнее» / «Кратко».
+    """‹ вчера · Сегодня · завтра ›, ниже — «Вся неделя · Подробнее / Кратко · Назад».
 
+    «Сегодня» — единственная кнопка с заливкой; если сегодня уже открыто, она неактивна.
     Листание дней сохраняет вид таблицы (краткий или подробный).
     """
     kind = NAV_DAY_FULL if detailed else NAV_DAY
     prev_day = target_date - datetime.timedelta(days=1)
     next_day = target_date + datetime.timedelta(days=1)
+    if target_date == today:
+        today_button = NavButton("Сегодня", disabled=True)
+    else:
+        today_button = NavButton("Сегодня", nav_data(kind, today, group_name), accent=True)
     toggle = (
         NavButton("Кратко", nav_data(NAV_DAY, target_date, group_name))
         if detailed
@@ -886,10 +904,14 @@ def day_nav(
     return [
         [
             NavButton(f"‹ {_nav_day_label(prev_day)}", nav_data(kind, prev_day, group_name)),
-            NavButton("Сегодня", nav_data(kind, today, group_name), active=target_date == today),
+            today_button,
             NavButton(f"{_nav_day_label(next_day)} ›", nav_data(kind, next_day, group_name)),
         ],
-        [NavButton("Вся неделя", nav_data(NAV_WEEK, _monday(target_date), group_name)), toggle],
+        [
+            NavButton("Вся неделя", nav_data(NAV_WEEK, _monday(target_date), group_name)),
+            toggle,
+            _back_button(),
+        ],
     ]
 
 
@@ -898,21 +920,23 @@ def _monday(target_date: datetime.date) -> datetime.date:
 
 
 def week_nav(monday: datetime.date, group_name: str, today: datetime.date) -> list[list[NavButton]]:
-    """‹ Пред. | Эта неделя | След. ›, ниже — «Ко дню» (сегодня или понедельник недели)."""
+    """‹ Пред. · Эта неделя · След. ›, ниже — «Сегодня» (с заливкой) и «Назад».
+
+    Если открыта текущая неделя, «Эта неделя» неактивна.
+    """
     this_monday = _monday(today)
     week = datetime.timedelta(weeks=1)
-    day = today if monday == this_monday else monday
+    if monday == this_monday:
+        this_week = NavButton("Эта неделя", disabled=True)
+    else:
+        this_week = NavButton("Эта неделя", nav_data(NAV_WEEK, this_monday, group_name))
     return [
         [
             NavButton("‹ Пред.", nav_data(NAV_WEEK, monday - week, group_name)),
-            NavButton(
-                "Эта неделя",
-                nav_data(NAV_WEEK, this_monday, group_name),
-                active=monday == this_monday,
-            ),
+            this_week,
             NavButton("След. ›", nav_data(NAV_WEEK, monday + week, group_name)),
         ],
-        [NavButton("Ко дню", nav_data(NAV_DAY, day, group_name))],
+        [NavButton("Сегодня", nav_data(NAV_DAY, today, group_name), accent=True), _back_button()],
     ]
 
 
@@ -939,6 +963,11 @@ def _nav_parts(rows: NavRows) -> tuple[NavRows, InlineKeyboardMarkup | None]:
     return [], schedule_nav_kb(rows)
 
 
+def _other_group_lead(user: dict, group_name: str) -> str | None:
+    """Подпись над расписанием чужой группы (своя группа — без подписи)."""
+    return None if group_name == user.get("group_name") else group_name
+
+
 def _viewer(user: dict, group_name: str) -> tuple[int, int, bool, list[str]]:
     """Подгруппы, компактный режим и допы пользователя; допы — только для своей группы."""
     sg_inf, sg_eng = _subgroups(user)
@@ -959,6 +988,7 @@ def day_views(
 ) -> ScheduleViews:
     """День: rich с навигацией (краткий или подробный) или классика с «Подробнее»."""
     sg_inf, sg_eng, compact, extra_keys = _viewer(user, group_name)
+    lead = lead or _other_group_lead(user, group_name)
     nav, markup = _nav_parts(day_nav(target_date, group_name, app_today(), detailed=detailed))
 
     async def rich() -> str:
@@ -991,9 +1021,11 @@ def week_views(user: dict, group_name: str, monday: datetime.date) -> ScheduleVi
     nav, markup = _nav_parts(week_nav(monday, group_name, today))
     which = _week_kind(monday, today)
 
+    lead = _other_group_lead(user, group_name)
+
     async def rich() -> str:
         return await render_rich_week(
-            group_name, monday, sg_inf, sg_eng, extra_keys, which, nav=nav
+            group_name, monday, sg_inf, sg_eng, extra_keys, which, nav=nav, lead=lead
         )
 
     async def classic() -> ClassicMessages:
@@ -1054,9 +1086,15 @@ def _week_views(user: dict, data: dict, monday: datetime.date) -> ScheduleViews:
     return week_views(user, _schedule_group_name(user, data), monday)
 
 
-async def _send_views(bot: Bot, chat_id: int, user: dict, views: ScheduleViews) -> list[Message]:
+async def _send_views(
+    bot: Bot, chat_id: int, user: dict, views: ScheduleViews, *, remove_keyboard: bool = False
+) -> list[Message]:
+    """Отправить; remove_keyboard — заодно убрать reply-клавиатуру (если нет inline-кнопок)."""
+    markup = views.markup
+    if markup is None and remove_keyboard:
+        markup = ReplyKeyboardRemove()
     return await send_schedule(
-        bot, chat_id, user, rich=views.rich, classic=views.classic, rich_markup=views.markup
+        bot, chat_id, user, rich=views.rich, classic=views.classic, rich_markup=markup
     )
 
 
@@ -1081,34 +1119,34 @@ async def _send_screen(
 
 
 async def _open_live_schedule(
-    message: Message, state: FSMContext, user: dict, group_name: str, *, other: bool = False
+    message: Message, state: FSMContext, user: dict, group_name: str
 ) -> None:
-    """Новый вид: сразу сегодняшний день живым сообщением, внизу только «⬅️ Назад».
+    """Новый вид: одно живое сообщение с сегодняшним днём, без reply-клавиатуры.
 
-    Периоды переключаются кнопками в самом сообщении; клавиатура выбора периода
-    нужна только классическому виду.
+    Периоды, подробности и «Назад» — кнопками в самом сообщении; клавиатура выбора
+    периода нужна только классическому виду.
     """
-    context = {"schedule_context": "other", "schedule_group_name": group_name} if other else {}
-    header = await message.answer(
-        _period_header("Расписание:", context), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
-    )
     views = day_views(user, group_name, app_today())
-    sent = await _send_views(message.bot, message.chat.id, user, views)
+    sent = await _send_views(message.bot, message.chat.id, user, views, remove_keyboard=True)
     await replace_ui_messages(
         message.bot,
         message.chat.id,
         state,
-        [header.message_id, *(msg.message_id for msg in sent)],
+        [msg.message_id for msg in sent],
         screen="schedule",
         clear_state=True,
-        last_bot_msg=header.message_id,
         last_schedule_msg=sent[-1].message_id if sent else None,
     )
 
 
-async def show_other_group_select(message: Message, state: FSMContext) -> None:
-    """Показать выбор другой группы с reply-кнопкой Назад."""
-    user = await get_user(message.from_user.id)
+async def show_other_group_select(
+    message: Message, state: FSMContext, *, user_id: int | None = None
+) -> None:
+    """Показать выбор другой группы с reply-кнопкой Назад.
+
+    user_id — для вызова из callback: там message отправлен ботом.
+    """
+    user = await get_user(user_id or message.from_user.id)
     if not user:
         sent = await message.answer(register_required_text(), parse_mode=HTML_PARSE_MODE)
         await replace_ui_messages(
@@ -1187,7 +1225,7 @@ async def on_other_group_selected(callback: CallbackQuery, state: FSMContext) ->
 
     await callback.answer()
     if rich_enabled(user):
-        await _open_live_schedule(callback.message, state, user, group_name, other=True)
+        await _open_live_schedule(callback.message, state, user, group_name)
     else:
         sent = await callback.message.answer(
             titled(str(group_name), "Выбери период."),
@@ -1373,6 +1411,25 @@ async def on_schedule_collapse(callback: CallbackQuery, state: FSMContext) -> No
         text, reply_markup=schedule_detail_kb(date_iso), parse_mode="HTML"
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == SCHEDULE_BACK)
+async def on_schedule_back(callback: CallbackQuery, state: FSMContext) -> None:
+    """«Назад» в живом сообщении: как reply-кнопка «⬅️ Назад» — по стеку экранов."""
+    user = await get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Открой /start", show_alert=True)
+        return
+    await callback.answer()
+    data = await state.get_data()
+    stack = list(data.get("_nav_stack", []))
+    screen = stack.pop() if stack else None
+    await state.update_data(_nav_stack=stack)
+    if screen == "other_group_select":
+        await show_other_group_select(callback.message, state, user_id=callback.from_user.id)
+        return
+    await state.set_state(None)
+    await _replace_with_main_menu(callback.message, state, user)
 
 
 @router.callback_query(F.data.startswith(f"{NAV_PREFIX}:"))

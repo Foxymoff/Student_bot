@@ -62,7 +62,8 @@ Rich Messages появились в Bot API 10.1 (11.06.2026) и расширя�
 - `<tg-time format="r">` приходит как `date_time` с `date_time_format: "r"`; текст тега сохраняется как фолбэк.
 - `<mark>`, `<s>`, `<b>`, `<i>` приходят как `marked`, `strikethrough`, `bold`, `italic`; вложенность сохраняется.
 - `<a href>` в абзаце внутри `<details>` приходит как `url`.
-- `<tg-button-row>` приходит как блок `buttons`. У кнопок ряда сохраняются `style="primary"`, `"success"`, `"danger"`, а `style="link"` **отбрасывается** (и в HTML, и в `InputRichBlockButtons`). `link` работает только у `<tg-button>` внутри абзаца (`RichTextButton`); там же работает `type="disabled"`.
+- `<tg-button-row>` приходит как блок `buttons`. У кнопок ряда сохраняются `style="primary"`, `"success"`, `"danger"`, а `style="link"` **отбрасывается** (и в HTML, и в `InputRichBlockButtons`). `link` работает только у `<tg-button>` внутри абзаца (`RichTextButton`); там же работает `type="disabled"` (в эхе `disabled: {}`, без `callback_data`).
+- `sendRichMessage` принимает `reply_markup=ReplyKeyboardRemove()` без ошибки — так одним сообщением убирается reply-клавиатура (что она скрылась, видно только в клиенте).
 - `editMessageText(..., rich_message=InputRichMessage(...))` перерисовывает rich-сообщение на месте, эхо в ответе такое же, как у `sendRichMessage`. Повторная правка тем же содержимым даёт `Bad Request: message is not modified`.
 
 Проверка своими руками: `scripts/rich_preview.py` (нужны `TEST_BOT_TOKEN` и `TEST_CHAT_ID`, с боевым ботом не работает).

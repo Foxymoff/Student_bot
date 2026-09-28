@@ -104,8 +104,11 @@ CAPTIONS: dict[str, str] = {
     "full_with_changes": "Подробно · отмена, смена аудитории, примечание, онлайн",
     "full_added_and_renamed": "Подробно · староста переименовал пару и добавил 4-ю",
     "full_all_cancelled": "Подробно · все пары отменены",
-    "day_with_nav": "Кратко · с кнопками",
-    "full_with_nav": "Подробно · с кнопками",
+    "day_with_nav": "Кнопки · открыт сегодняшний день (пт 25.09): «Сегодня» неактивна",
+    "day_tomorrow_with_nav": "Кнопки · открыт другой день (сб 26.09): «Сегодня» с заливкой",
+    "full_with_nav": "Кнопки · подробный вид сегодняшнего дня",
+    "week_this_with_nav": "Кнопки · текущая неделя: «Эта неделя» неактивна",
+    "week_past_with_nav": "Кнопки · прошлая неделя: «Эта неделя» — ссылка",
     "week_this_friday": "Неделя · пт 25.09, 01:22",
 }
 CAPTION_NOTE = "«через…/…назад» считается от настоящего времени"
@@ -185,14 +188,14 @@ def check_echo(html: str, message: Message) -> list[tuple[str, bool]]:
         (style or None, html_lib.unescape(data)) for style, data in _BUTTON_RE.findall(html)
     ]
     # Кнопки ряда (<tg-button-row>) и кнопки внутри абзаца (RichTextButton).
-    echo_buttons = [
-        (button.style, button.callback_data)
+    all_buttons = [
+        button
         for block in blocks
         if isinstance(block, RichBlockButtons)
         for button in block.buttons
-    ] + [
-        (f.button.style, f.button.callback_data) for f in fragments if isinstance(f, RichTextButton)
-    ]
+    ] + [f.button for f in fragments if isinstance(f, RichTextButton)]
+    echo_buttons = [(b.style, b.callback_data) for b in all_buttons if b.callback_data]
+    echo_disabled = sum(1 for b in all_buttons if b.disabled is not None)
     return [
         ("таблицы: is_compact", all(t.is_compact for t in tables)),
         ("таблицы: is_striped", all(t.is_striped for t in tables)),
@@ -216,6 +219,7 @@ def check_echo(html: str, message: Message) -> list[tuple[str, bool]]:
             ("<mark>" in html) == any(isinstance(f, RichTextMarked) for f in fragments),
         ),
         ("кнопки: style и callback_data", sent_buttons == echo_buttons),
+        ("неактивные кнопки", html.count('<tg-button type="disabled">') == echo_disabled),
     ]
 
 

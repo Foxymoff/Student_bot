@@ -111,9 +111,12 @@ class _Checker(HTMLParser):
             self.errors.append("ссылка в ячейке таблицы")
         if tag == "tg-button":
             attrs_map = dict(attrs)
-            if attrs_map.get("type") != "callback_data" or not attrs_map.get("data"):
+            if attrs_map.get("type") == "disabled":
+                if set(attrs_map) != {"type"}:
+                    self.errors.append("у неактивной кнопки лишние атрибуты")
+            elif attrs_map.get("type") != "callback_data" or not attrs_map.get("data"):
                 self.errors.append("tg-button не callback_data")
-            if len(attrs_map["data"].encode()) > 64:
+            elif len(attrs_map["data"].encode()) > 64:
                 self.errors.append("callback_data длиннее 64 байт")
             if self.stack[-1:] not in (["tg-button-row"], ["p"]):
                 self.errors.append("tg-button вне tg-button-row и абзаца")
@@ -170,7 +173,7 @@ def test_reference_day_short():
 
     assert html == (
         "<h3>Пятница, 25 сентября</h3>"
-        f"<p>09:20–15:00 · начало 1 пары {_tg(9, 20)}</p>"
+        f"<p>09:20–15:00 · начало {_tg(9, 20)}</p>"
         "<table compact striped>"
         '<tr><td>1</td><td><b>МДК 04.02</b></td><td align="right">501</td></tr>'
         '<tr><td>2</td><td>История</td><td align="right">КЗ</td></tr>'
@@ -185,9 +188,9 @@ def test_reference_day_detailed():
 
     assert html.startswith(
         "<h3>Пятница, 25 сентября</h3>"
-        f"<p>09:20–15:00 · начало 1 пары {_tg(9, 20)}</p>"
+        f"<p>09:20–15:00 · начало {_tg(9, 20)}</p>"
         "<table compact striped>"
-        '<tr><td valign="top"><b>09:20–10:50</b></td><td><b>Обеспечение качества'
+        '<tr><td valign="top"><b>09:20</b><br><b>10:50</b></td><td><b>Обеспечение качества'
         " функционирования компьютерных систем</b><br><i>Павлович Е.М.</i></td>"
         '<td align="right" valign="top">501</td></tr>'
     )
@@ -206,8 +209,8 @@ def _status(now: datetime.datetime, date: datetime.date = FRIDAY) -> str:
 @pytest.mark.parametrize(
     ("now", "status"),
     [
-        (at(24, 20, 0), f"начало 1 пары {_tg(9, 20)}"),  # день в будущем
-        (at(25, 1, 22), f"начало 1 пары {_tg(9, 20)}"),  # сегодня до первой пары
+        (at(24, 20, 0), f"начало {_tg(9, 20)}"),  # день в будущем
+        (at(25, 1, 22), f"начало {_tg(9, 20)}"),  # сегодня до первой пары
         (at(25, 9, 20), f"конец 1 пары {_tg(10, 50)}"),  # началась первая
         (at(25, 11, 30), f"конец 2 пары {_tg(12, 30)}"),  # идёт вторая
         (at(25, 10, 50), f"начало 2 пары {_tg(11, 0)}"),  # перемена
@@ -233,13 +236,15 @@ def test_after_last_pair_shows_next_study_day():
 
     assert "<p>Пары на сегодня закончились.</p>" in html
     assert "<details><summary>Сегодняшние пары</summary><table" in html
-    assert f"<h3>Суббота, 26 сентября</h3><p>11:00–12:30 · начало 2 пары {_tg(11, 0, 26)}" in html
+    assert f"<h3>Суббота, 26 сентября</h3><p>11:00–12:30 · начало {_tg(11, 0, 26)}" in html
     assert "<b>" not in html  # ближайшая пара не сегодня — без выделения
 
 
 def test_nearest_pair_marked_only_today():
     assert "<td><b>История</b></td>" in today_html(at(25, 10, 55))
-    assert '<td valign="top"><b>11:00–12:30</b></td>' in today_html(at(25, 10, 55), detailed=True)
+    assert '<td valign="top"><b>11:00</b><br><b>12:30</b></td>' in today_html(
+        at(25, 10, 55), detailed=True
+    )
     assert "<b>" not in day_html(FRIDAY, at(24, 20, 0))
 
 
@@ -252,7 +257,7 @@ def test_empty_day_without_upcoming():
 def test_empty_day_points_to_next_study_day():
     assert day_html(SUNDAY, at(26, 18, 0)) == (
         "<h3>Воскресенье, 27 сентября</h3>"
-        "<p>Пар нет. Ближайшие: понедельник, 28 сентября, начало 1 пары "
+        "<p>Пар нет. Ближайшие: понедельник, 28 сентября, начало "
         f"{_tg(9, 20, 28)}</p>"
         f"<footer>{GROUP}</footer>"
     )
@@ -292,10 +297,10 @@ def test_extra_is_italic_marked_with_plus():
     short = day_html(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA])
     full = day_html(FRIDAY, at(25, 1, 22), extras=[UNITY_EXTRA], detailed=True)
 
-    assert "<p>09:20–18:20 · начало 1 пары" in short
+    assert "<p>09:20–18:20 · начало <tg-time" in short
     assert '<tr><td>+</td><td><i>UNITY</i> · доп</td><td align="right">501</td></tr>' in short
     assert (
-        '<tr><td valign="top">16:50–18:20</td><td><b><i>Разработка игр на движке UNITY</i></b>'
+        '<tr><td valign="top">16:50<br>18:20</td><td><b><i>Разработка игр на движке UNITY</i></b>'
         " · доп<br><i>Павлович Е.М.</i><br><i>группа 1</i></td>"
     ) in full
 
@@ -304,9 +309,7 @@ def test_changes_short_shows_only_current_state():
     html = CASES["day_with_changes"]()
 
     # Отменённая пара зачёркнута и не участвует в статусе.
-    assert html.startswith(
-        f"<h3>Пятница, 25 сентября</h3><p>11:00–15:00 · начало 2 пары {_tg(11, 0)}"
-    )
+    assert html.startswith(f"<h3>Пятница, 25 сентября</h3><p>11:00–15:00 · начало {_tg(11, 0)}")
     assert '<td>1</td><td><s>МДК 04.02</s></td><td align="right"><s>501</s></td>' in html
     # В кратком виде — просто текущая аудитория, отметки и ссылки только в подробном.
     assert '<td>2</td><td><b>История</b></td><td align="right">420</td>' in html
@@ -334,11 +337,11 @@ def test_added_and_renamed_pairs():
     assert "<td><b>История России</b><br><i>Хайруллина Д.Х.</i></td>" in html
     # Добавленная пара: время из сетки звонков, без преподавателя и аудитории.
     assert (
-        '<tr><td valign="top">15:10–16:40</td><td><b>Пересдача</b></td>'
+        '<tr><td valign="top">15:10<br>16:40</td><td><b>Пересдача</b></td>'
         '<td align="right" valign="top"></td></tr>'
     ) in html
     assert '<tr><td>4</td><td>Пересдача</td><td align="right"></td></tr>' in short
-    assert "<p>09:20–16:40 · начало 1 пары" in short
+    assert "<p>09:20–16:40 · начало <tg-time" in short
 
 
 def test_missing_room_and_teacher():
@@ -372,7 +375,7 @@ def test_all_cancelled_day():
         html = day_html(FRIDAY, at(25, 1, 22), overrides=ALL_CANCELLED, detailed=detailed)
 
         check_html(html)
-        assert "<p>Все пары отменены. Ближайшие: суббота, 26 сентября, начало 2 пары" in html
+        assert "<p>Все пары отменены. Ближайшие: суббота, 26 сентября, начало <tg-time" in html
         assert html.count("<s>") == 6  # название и аудитория каждой пары
 
 
@@ -508,43 +511,52 @@ def test_all_real_schedules_render_valid_html():
 # ── Кнопки навигации (живое сообщение) ────────────────────
 
 
-def test_nav_row_styles_and_escaping():
+def test_nav_inline_links_accent_and_disabled():
     html = nav_html(
-        [[NavButton("‹ <вчера>", 'rs:"x"&y'), NavButton("Сегодня", "rs:t", active=True)]]
+        [
+            [
+                NavButton("‹ <вчера>", 'rs:"x"&y'),
+                NavButton("Сегодня", "rs:t", accent=True),
+                NavButton("Эта неделя", disabled=True),
+            ]
+        ]
     )
 
-    # Стиль у каждой кнопки: без него на iOS в тёмной теме белый текст на белой кнопке.
+    # Обычные — ссылками, заливка только у акцента, текущая — неактивна.
     assert html == (
-        '<tg-button-row align="center">'
-        '<tg-button type="callback_data" style="primary" data="rs:&quot;x&quot;&amp;y">'
-        "‹ &lt;вчера&gt;</tg-button>"
-        '<tg-button type="callback_data" style="success" data="rs:t">Сегодня</tg-button>'
-        "</tg-button-row>"
+        '<p><tg-button type="callback_data" style="link" data="rs:&quot;x&quot;&amp;y">'
+        "‹ &lt;вчера&gt;</tg-button> · "
+        '<tg-button type="callback_data" style="primary" data="rs:t">Сегодня</tg-button> · '
+        '<tg-button type="disabled">Эта неделя</tg-button></p>'
     )
+    check_html(html)
     assert nav_html([]) == nav_html([[]]) == ""
 
 
-def test_nav_rows_become_separate_button_rows():
+def test_nav_rows_become_separate_lines():
     html = nav_html([[NavButton("a", "rs:a")], [NavButton("b", "rs:b")]])
 
-    assert html.count("<tg-button-row") == 2
+    assert html.count("<p>") == 2
     check_html(html)
 
 
-def test_nav_inline_layout(monkeypatch):
-    monkeypatch.setattr(render_rich, "NAV_LAYOUT", "inline")
+def test_nav_row_layout(monkeypatch):
+    monkeypatch.setattr(render_rich, "NAV_LAYOUT", "row")
 
-    html = nav_html([[NavButton("‹ Чт, 24", "rs:a"), NavButton("Сегодня", "rs:b", active=True)]])
+    html = nav_html([[NavButton("‹ Чт, 24", "rs:a"), NavButton("Сегодня", "rs:b", accent=True)]])
 
+    # В ряду link отбрасывается сервером — обычные primary, акцент success.
     assert html == (
-        '<p><tg-button type="callback_data" style="link" data="rs:a">‹ Чт, 24</tg-button> · '
-        '<tg-button type="callback_data" style="success" data="rs:b">Сегодня</tg-button></p>'
+        '<tg-button-row align="center">'
+        '<tg-button type="callback_data" style="primary" data="rs:a">‹ Чт, 24</tg-button>'
+        '<tg-button type="callback_data" style="success" data="rs:b">Сегодня</tg-button>'
+        "</tg-button-row>"
     )
     check_html(html)
 
 
 def test_nav_goes_last_in_day_and_week():
-    buttons = [[NavButton("Сегодня", "rs:t", active=True)], [NavButton("Вся неделя", "rs:w")]]
+    buttons = [[NavButton("Сегодня", disabled=True)], [NavButton("Вся неделя", "rs:w")]]
     pages = [
         render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons),
         render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons, detailed=True),
@@ -554,6 +566,12 @@ def test_nav_goes_last_in_day_and_week():
     for html in pages:
         check_html(html)
         assert html.endswith(f"<footer>{GROUP}</footer>{nav_html(buttons)}")
+
+
+def test_week_lead_for_other_group():
+    html = render_week_html(week(MONDAY), now=at(25, 1, 22), group="МР-25", lead="МР-25")
+
+    assert html.startswith("<p><b>МР-25</b></p><h3>Неделя")
 
 
 def test_past_week_is_collapsed_without_ended_note():

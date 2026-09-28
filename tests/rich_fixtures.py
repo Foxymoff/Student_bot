@@ -210,6 +210,12 @@ CASES: dict[str, Callable[[], str]] = {
     "day_with_nav": lambda: day_html(
         FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY)
     ),
+    "day_tomorrow_with_nav": lambda: day_html(
+        SATURDAY, at(25, 20, 0), nav=schedule.day_nav(SATURDAY, GROUP, FRIDAY)
+    ),
+    "week_this_with_nav": lambda: week_html(
+        MONDAY, at(25, 1, 22), "this", nav=schedule.week_nav(MONDAY, GROUP, FRIDAY)
+    ),
     "full_with_nav": lambda: _full(
         FRIDAY, at(25, 1, 22), nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY, detailed=True)
     ),
