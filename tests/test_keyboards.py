@@ -57,33 +57,17 @@ def test_starosta_pair_actions_last_button_label_differs():
 from keyboards import settings_menu_kb, settings_view_kb  # noqa: E402
 
 
-def test_settings_view_new_view_hides_compact_toggle():
-    kb = settings_view_kb(compact=True, classic=False)
-
-    assert [b.text for b in kb.inline_keyboard[0]] == ["✅ Новый", "Классический"]
-    assert "settings:compact:0" not in _cb_set(kb)
-    assert "settings:compact:1" not in _cb_set(kb)
+def test_settings_view_kb_is_only_compact_toggle():
+    assert _cb_set(settings_view_kb(True)) == {"settings:compact:0", "settings:back"}
+    assert _cb_set(settings_view_kb(False)) == {"settings:compact:1", "settings:back"}
 
 
-def test_settings_view_classic_shows_compact_toggle():
-    kb = settings_view_kb(compact=False, classic=True)
+def test_settings_menu_view_row_only_for_classic():
+    classic = settings_menu_kb(True, classic=True)
+    rich = settings_menu_kb(True, classic=False)
 
-    assert [b.text for b in kb.inline_keyboard[0]] == ["Новый", "✅ Классический"]
-    assert "settings:compact:1" in _cb_set(kb)
-
-
-def test_settings_view_without_rich_only_compact_toggle():
-    kb = settings_view_kb(compact=True, classic=False, rich_available=False)
-
-    assert _cb_set(kb) == {"settings:compact:0", "settings:back"}
-
-
-def test_settings_menu_view_label():
-    def label(**kwargs):
-        return settings_menu_kb(True, **kwargs).inline_keyboard[0][0].text
-
-    assert label(classic=False) == "📱 Вид расписания: Новый"
-    assert label(classic=True) == "📱 Вид расписания: Компактный"
+    assert classic.inline_keyboard[0][0].text == "📱 Вид расписания: Компактный"
+    assert "settings:view" not in _cb_set(rich)  # у нового вида настроек вида нет
 
 
 from keyboards import main_menu_kb, schedule_period_reply_kb  # noqa: E402
@@ -135,3 +119,6 @@ def test_settings_kb_maps_user_fields_to_labels():
         "🚨 Алерты изменений: вкл.",
         "⬅️ Главное меню",
     ]
+    # Новый вид: пункта «Вид расписания» нет, остальное на местах.
+    rich_labels = [row[0].text for row in _settings_kb({**user, "classic_view": 0}).inline_keyboard]
+    assert rich_labels == labels[1:]

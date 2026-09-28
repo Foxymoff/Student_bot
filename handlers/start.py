@@ -121,33 +121,15 @@ def _classic_view_text(classic: bool) -> str:
         body = "Включён классический вид: обычные сообщения с кнопкой «Подробнее»."
     else:
         body = "Включён новый вид: подробности раскрываются прямо в сообщении."
-    body += "\n\nПереключить обратно — /classic или «Настройки → Вид расписания»."
+    body += "\n\nПереключить обратно — /classic"
     if not RICH_SCHEDULE:
         body += "\n\nСейчас новый вид отключён для всех, расписание приходит в классическом."
     return titled("Вид расписания", body)
 
 
-def _schedule_view_text(user: dict) -> str:
-    """Текст раздела настроек вида расписания."""
-    if RICH_SCHEDULE:
-        parts = [
-            "Новый — таблица на день, подробности раскрываются прямо в сообщении.\n"
-            "Классический — обычные сообщения с кнопкой «Подробнее»."
-        ]
-    else:
-        parts = ["Сейчас новый вид отключён для всех, расписание приходит в классическом."]
-    if not rich_enabled(user):
-        parts.append("Рекомендуем:\nAndroid — компактный\niOS, ПК — колонки")
-    return titled("Вид расписания", "\n\n".join(parts))
-
-
-def _schedule_view_kb(user: dict):
-    """Inline-клавиатура раздела вида расписания."""
-    return settings_view_kb(
-        bool(user.get("compact_mode")),
-        classic=bool(user.get("classic_view")),
-        rich_available=RICH_SCHEDULE,
-    )
+def _schedule_view_text() -> str:
+    """Текст раздела настроек вида расписания (классический вид)."""
+    return f"{title('Вид расписания')}\n\nРекомендуем:\nAndroid — компактный\niOS, ПК — колонки"
 
 
 def _daily_notify_text(user: dict) -> str:
@@ -1204,55 +1186,37 @@ async def cmd_classic(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "settings:view")
 async def on_settings_view(callback: CallbackQuery) -> None:
-    """Открыть настройки вида расписания."""
+    """Открыть настройки вида расписания (компактный / колонки — у классического вида)."""
     user = await get_user(callback.from_user.id)
     if not user:
         await callback.answer("Открой /start", show_alert=True)
         return
+    if rich_enabled(user):
+        # Старая кнопка из сообщения с настройками: у нового вида настроек нет.
+        await callback.message.edit_text(
+            _settings_text(user), reply_markup=_settings_kb(user), parse_mode=HTML_PARSE_MODE
+        )
+        await callback.answer(
+            "Новый вид не настраивается. Классический — /classic", show_alert=True
+        )
+        return
     await callback.message.edit_text(
-        _schedule_view_text(user),
-        reply_markup=_schedule_view_kb(user),
+        _schedule_view_text(),
+        reply_markup=settings_view_kb(bool(user.get("compact_mode"))),
         parse_mode=HTML_PARSE_MODE,
     )
     await callback.answer()
-
-
-@router.callback_query(F.data.startswith("settings:classic:"))
-async def on_toggle_classic(callback: CallbackQuery) -> None:
-    """Выбор нового или классического вида расписания (то же, что /classic)."""
-    classic = callback.data.split(":")[-1] == "1"
-    user = await get_user(callback.from_user.id)
-    if not user:
-        await callback.answer("Открой /start", show_alert=True)
-        return
-    label = "классический" if classic else "новый"
-    if bool(user.get("classic_view")) == classic:
-        await callback.answer(f"Уже включён {label} вид")
-        return
-    await update_user_classic_view(callback.from_user.id, classic)
-    user = {**user, "classic_view": int(classic)}
-    await callback.message.edit_text(
-        _schedule_view_text(user),
-        reply_markup=_schedule_view_kb(user),
-        parse_mode=HTML_PARSE_MODE,
-    )
-    await callback.answer(f"Готово · {label} вид", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("settings:compact:"))
 async def on_toggle_compact(callback: CallbackQuery, state: FSMContext) -> None:
     """Переключение компактного режима (классический вид)."""
     value = int(callback.data.split(":")[-1])
-    user = await get_user(callback.from_user.id)
-    if not user:
-        await callback.answer("Открой /start", show_alert=True)
-        return
     await update_user_compact(callback.from_user.id, bool(value))
-    user = {**user, "compact_mode": value}
     label = "Компактный" if value else "Колонки"
     await callback.message.edit_text(
-        _schedule_view_text(user),
-        reply_markup=_schedule_view_kb(user),
+        _schedule_view_text(),
+        reply_markup=settings_view_kb(bool(value)),
         parse_mode=HTML_PARSE_MODE,
     )
     await callback.answer(f"Готово · режим {label.lower()}", show_alert=True)

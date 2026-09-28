@@ -378,46 +378,45 @@ async def test_daily_notify_skips_empty_day(daily):
 # ── Настройки: вид расписания ─────────────────────────────
 
 
-async def test_settings_toggle_classic(monkeypatch):
-    calls = []
-
-    async def get_user(user_id):
-        return {**USER, "compact_mode": 1}
-
-    async def update_user_classic_view(user_id, classic):
-        calls.append((user_id, classic))
-
-    monkeypatch.setattr(start, "get_user", get_user)
-    monkeypatch.setattr(start, "update_user_classic_view", update_user_classic_view)
+def _settings_callback(data: str) -> MagicMock:
     callback = MagicMock()
-    callback.data = "settings:classic:1"
+    callback.data = data
     callback.from_user.id = 9
     callback.answer = AsyncMock()
     callback.message.edit_text = AsyncMock()
-
-    await start.on_toggle_classic(callback)
-
-    assert calls == [(9, True)]
-    kb = callback.message.edit_text.await_args.kwargs["reply_markup"]
-    assert "settings:compact:0" in {b.callback_data for row in kb.inline_keyboard for b in row}
-    assert "компактный" in callback.message.edit_text.await_args.args[0]
+    return callback
 
 
-async def test_settings_toggle_classic_same_value_only_answers(monkeypatch):
+async def test_old_view_button_for_rich_user_points_to_classic(monkeypatch):
     async def get_user(user_id):
         return USER
 
     monkeypatch.setattr(start, "get_user", get_user)
-    callback = MagicMock()
-    callback.data = "settings:classic:0"
-    callback.from_user.id = 9
-    callback.answer = AsyncMock()
-    callback.message.edit_text = AsyncMock()
+    callback = _settings_callback("settings:view")
 
-    await start.on_toggle_classic(callback)
+    await start.on_settings_view(callback)
 
-    callback.answer.assert_awaited_once_with("Уже включён новый вид")
-    callback.message.edit_text.assert_not_awaited()
+    callback.answer.assert_awaited_once_with(
+        "Новый вид не настраивается. Классический — /classic", show_alert=True
+    )
+    kb = callback.message.edit_text.await_args.kwargs["reply_markup"]
+    assert "settings:view" not in {b.callback_data for row in kb.inline_keyboard for b in row}
+
+
+async def test_view_settings_for_classic_user_show_compact_toggle(monkeypatch):
+    async def get_user(user_id):
+        return {**USER, "classic_view": 1, "compact_mode": 1}
+
+    monkeypatch.setattr(start, "get_user", get_user)
+    callback = _settings_callback("settings:view")
+
+    await start.on_settings_view(callback)
+
+    kb = callback.message.edit_text.await_args.kwargs["reply_markup"]
+    assert {b.callback_data for row in kb.inline_keyboard for b in row} == {
+        "settings:compact:0",
+        "settings:back",
+    }
 
 
 # ── Живое сообщение: навигация ────────────────────────────
