@@ -26,7 +26,7 @@ The project also gives group leaders a simple way to publish schedule changes, s
 - Filter lessons by informatics and English subgroups.
 - View another group's schedule without changing the user profile.
 - Select extra classes; the selected ones are shown inside the main schedule.
-- Rich schedule messages (Telegram Rich HTML): one compact table per day, details and teachers in a collapsible block, a live countdown to the next lesson, and the week as an accordion. «📅 Расписание» opens today right away: buttons inside the message switch days and weeks and toggle the detailed table, editing the same message. The period keyboard is kept for the classic view.
+- Rich schedule messages (Telegram Rich HTML): one compact table per day, details and teachers in a collapsible block, a live countdown to the next lesson, and the week as an accordion. «📅 Расписание» opens today right away: buttons inside the message switch days and weeks and toggle the detailed table, editing the same message. The bot remembers whether the user last viewed the short or the detailed table. The period keyboard is kept for the classic view.
 - Switch to the classic plain-message schedule with `/classic` or in settings; the classic view has compact and column layouts.
 - Configure personal daily schedule notifications.
 - Receive alerts about schedule changes.

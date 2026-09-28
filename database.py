@@ -62,6 +62,7 @@ async def init_db() -> None:
                 role TEXT DEFAULT 'student',
                 compact_mode INTEGER DEFAULT 0,
                 classic_view INTEGER DEFAULT 0,
+                schedule_detailed INTEGER DEFAULT 0,
                 extra_choices TEXT DEFAULT '[]',
                 extra_in_schedule INTEGER DEFAULT 0,
                 daily_notify_enabled INTEGER DEFAULT 0,
@@ -86,6 +87,7 @@ async def init_db() -> None:
             ("created_at", "TEXT DEFAULT (datetime('now'))"),
             ("compact_mode", "INTEGER DEFAULT 0"),
             ("classic_view", "INTEGER DEFAULT 0"),
+            ("schedule_detailed", "INTEGER DEFAULT 0"),
             ("extra_choices", "TEXT DEFAULT '[]'"),
             ("extra_in_schedule", "INTEGER DEFAULT 0"),
             ("daily_notify_enabled", "INTEGER DEFAULT 0"),
@@ -219,6 +221,16 @@ async def update_user_classic_view(user_id: int, classic: bool) -> None:
         await db.execute(
             "UPDATE users SET classic_view = ? WHERE user_id = ?",
             (1 if classic else 0, user_id),
+        )
+        await db.commit()
+
+
+async def update_user_schedule_detailed(user_id: int, detailed: bool) -> None:
+    """Запомнить, в каком виде (подробном или кратком) человек последний раз смотрел день."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET schedule_detailed = ? WHERE user_id = ?",
+            (1 if detailed else 0, user_id),
         )
         await db.commit()
 

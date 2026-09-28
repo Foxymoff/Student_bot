@@ -32,7 +32,7 @@ from config import (
     is_english_subject,
     rich_enabled,
 )
-from database import get_overrides, get_user
+from database import get_overrides, get_user, update_user_schedule_detailed
 from extra_schedule import get_extras_for_date, parse_extra_choices
 from handlers.start import push_nav
 from keyboards import (
@@ -910,13 +910,17 @@ def details_toggle(target_date: datetime.date, group_name: str, *, detailed: boo
     return NavButton("Подробнее", nav_data(NAV_DAY_FULL, target_date, group_name))
 
 
-def week_nav(monday: datetime.date, group_name: str, today: datetime.date) -> list[list[NavButton]]:
+def week_nav(
+    monday: datetime.date, group_name: str, today: datetime.date, *, detailed: bool = False
+) -> list[list[NavButton]]:
     """‹ Пред. | Эта неделя | След. ›, под «Эта неделя» — «Сегодня».
 
     Открыта текущая неделя — «Эта неделя» выделена (нажатие обновляет сообщение).
+    «Сегодня» открывает день в запомненном виде (detailed — подробном).
     """
     this_monday = _monday(today)
     week = datetime.timedelta(weeks=1)
+    day_kind = NAV_DAY_FULL if detailed else NAV_DAY
     return [
         [
             NavButton("‹ Пред.", nav_data(NAV_WEEK, monday - week, group_name)),
@@ -927,7 +931,7 @@ def week_nav(monday: datetime.date, group_name: str, today: datetime.date) -> li
             ),
             NavButton("След. ›", nav_data(NAV_WEEK, monday + week, group_name)),
         ],
-        [NavButton("Сегодня", nav_data(NAV_DAY, today, group_name))],
+        [NavButton("Сегодня", nav_data(day_kind, today, group_name))],
     ]
 
 
@@ -969,6 +973,18 @@ def _nav_parts(
     return body_rows, body_toggle, markup
 
 
+def prefers_detailed(user: dict) -> bool:
+    """В каком виде человек последний раз смотрел день: True — подробном."""
+    return bool(user.get("schedule_detailed"))
+
+
+async def remember_detailed(user: dict, detailed: bool) -> dict:
+    """Запомнить вид дня (пишем в БД, только если он изменился); вернуть обновлённого user."""
+    if prefers_detailed(user) != detailed:
+        await update_user_schedule_detailed(user["user_id"], detailed)
+    return {**user, "schedule_detailed": int(detailed)}
+
+
 def _viewer(user: dict, group_name: str) -> tuple[int, int, bool, list[str]]:
     """Подгруппы, компактный режим и допы пользователя; допы — только для своей группы."""
     sg_inf, sg_eng = _subgroups(user)
@@ -983,11 +999,16 @@ def day_views(
     group_name: str,
     target_date: datetime.date,
     *,
-    detailed: bool = False,
+    detailed: bool | None = None,
     lead: str | None = None,
     classic_header: str | None = None,
 ) -> ScheduleViews:
-    """День: rich с навигацией (краткий или подробный) или классика с «Подробнее»."""
+    """День: rich с навигацией или классика — в запомненном виде (detailed=None).
+
+    detailed=True/False — явный вид (кнопки «Подробнее» / «Кратко», листание).
+    """
+    if detailed is None:
+        detailed = prefers_detailed(user)
     sg_inf, sg_eng, compact, extra_keys = _viewer(user, group_name)
     nav, toggle, markup = _nav_parts(
         day_nav(target_date, group_name, app_today(), detailed=detailed),
@@ -1008,12 +1029,20 @@ def day_views(
         )
 
     async def classic() -> ClassicMessages:
-        text = await get_schedule_for_date_short(
-            group_name, target_date, sg_inf, sg_eng, compact, extra_keys
-        )
+        date_iso = target_date.isoformat()
+        if detailed:
+            text = await get_schedule_for_date_detailed(
+                group_name, target_date, sg_inf, sg_eng, extra_keys
+            )
+            keyboard = schedule_collapse_kb(date_iso)
+        else:
+            text = await get_schedule_for_date_short(
+                group_name, target_date, sg_inf, sg_eng, compact, extra_keys
+            )
+            keyboard = schedule_detail_kb(date_iso)
         if classic_header:
             text = f"{classic_header}\n\n{text}"
-        return [(text, schedule_detail_kb(target_date.isoformat()))]
+        return [(text, keyboard)]
 
     return ScheduleViews(rich, classic, markup)
 
@@ -1022,7 +1051,9 @@ def week_views(user: dict, group_name: str, monday: datetime.date) -> ScheduleVi
     """Неделя с понедельника: rich-аккордеон с навигацией или классика."""
     sg_inf, sg_eng, compact, extra_keys = _viewer(user, group_name)
     today = app_today()
-    nav, _toggle, markup = _nav_parts(week_nav(monday, group_name, today))
+    nav, _toggle, markup = _nav_parts(
+        week_nav(monday, group_name, today, detailed=prefers_detailed(user))
+    )
     which = _week_kind(monday, today)
 
     async def rich() -> str:
@@ -1354,6 +1385,7 @@ async def _answer_legacy_button(
         target_date = datetime.date.fromisoformat(date_iso)
     except ValueError:
         return
+    user = await remember_detailed(user, detailed)
     data = await state.get_data()
     views = day_views(user, _schedule_group_name(user, data), target_date, detailed=detailed)
     sent = await _send_views(callback.bot, old.chat.id, user, views)
@@ -1371,6 +1403,7 @@ async def on_schedule_detail(callback: CallbackQuery, state: FSMContext) -> None
     if rich_enabled(user):
         await _answer_legacy_button(callback, state, user, date_iso, detailed=True)
         return
+    await remember_detailed(user, True)
     target_date = datetime.date.fromisoformat(date_iso)
     data = await state.get_data()
     sg_inf, sg_eng = _subgroups(user)
@@ -1394,6 +1427,7 @@ async def on_schedule_collapse(callback: CallbackQuery, state: FSMContext) -> No
     if rich_enabled(user):
         await _answer_legacy_button(callback, state, user, date_iso, detailed=False)
         return
+    await remember_detailed(user, False)
     target_date = datetime.date.fromisoformat(date_iso)
     data = await state.get_data()
     sg_inf, sg_eng = _subgroups(user)
@@ -1424,6 +1458,8 @@ async def on_schedule_nav(callback: CallbackQuery, state: FSMContext) -> None:
     if kind == NAV_WEEK:
         views = week_views(user, group_name, _monday(target_date))
     else:
+        # Вид дня запоминаем: следующее расписание откроется так же.
+        user = await remember_detailed(user, kind == NAV_DAY_FULL)
         views = day_views(user, group_name, target_date, detailed=kind == NAV_DAY_FULL)
     old = callback.message
     if old is None:

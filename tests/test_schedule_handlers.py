@@ -171,7 +171,10 @@ async def test_send_schedule_classic_when_rich_disabled_globally(monkeypatch):
 
 @pytest.fixture
 def fixed_data(monkeypatch):
-    """Данные ИСП-25-2 из фикстур, без БД; «сейчас» — пятница, 25 сентября, 01:22."""
+    """Данные ИСП-25-2 из фикстур, без БД; «сейчас» — пятница, 25 сентября, 01:22.
+
+    Возвращает список записей запомненного вида: [(user_id, detailed), ...].
+    """
 
     async def get_overrides(group_name, date_iso):
         return []
@@ -180,6 +183,13 @@ def fixed_data(monkeypatch):
     monkeypatch.setattr(schedule, "get_overrides", get_overrides)
     monkeypatch.setattr(schedule, "app_now", lambda: at(25, 1, 22))
     monkeypatch.setattr(schedule, "app_today", lambda: datetime.date(2026, 9, 25))
+    saved = []
+
+    async def update_user_schedule_detailed(user_id, detailed):
+        saved.append((user_id, detailed))
+
+    monkeypatch.setattr(schedule, "update_user_schedule_detailed", update_user_schedule_detailed)
+    return saved
 
 
 async def test_today_button_sends_one_rich_message(state, monkeypatch, fixed_data):
@@ -758,3 +768,90 @@ async def test_links_command(state, monkeypatch):
     header, body = message.answer.await_args_list
     assert header.args[0] == "<b>Полезные ссылки</b>"
     assert "sport.innopolis.university" in body.args[0]
+
+
+# ── Запоминание вида дня (подробный / краткий) ───────────
+
+
+async def test_detailed_toggle_is_remembered(state, monkeypatch, fixed_data):
+    stored = dict(USER)  # «БД»: get_user читает то, что записал remember_detailed
+
+    async def get_user(user_id):
+        return dict(stored)
+
+    async def update_user_schedule_detailed(user_id, detailed):
+        fixed_data.append((user_id, detailed))
+        stored["schedule_detailed"] = int(detailed)
+
+    monkeypatch.setattr(schedule, "get_user", get_user)
+    monkeypatch.setattr(schedule, "update_user_schedule_detailed", update_user_schedule_detailed)
+
+    await schedule.on_schedule_nav(_nav_callback("rs:f:2026-09-25:ИСП-25-2"), state)  # Подробнее
+    await schedule.on_schedule_nav(_nav_callback("rs:f:2026-09-26:ИСП-25-2"), state)  # листание
+    await schedule.on_schedule_nav(_nav_callback("rs:d:2026-09-26:ИСП-25-2"), state)  # Кратко
+
+    # Листание в том же виде — без лишней записи в БД.
+    assert fixed_data == [(9, True), (9, False)]
+
+
+async def test_same_mode_is_not_written_again(state, fixed_data, rich_user):
+    await schedule.on_schedule_nav(_nav_callback("rs:d:2026-09-26:ИСП-25-2"), state)
+    await schedule.on_schedule_nav(_nav_callback("rs:w:2026-09-21:ИСП-25-2"), state)
+
+    assert fixed_data == []  # краткий уже запомнен, неделя вид не меняет
+
+
+async def test_views_open_in_remembered_mode(fixed_data):
+    user = {**USER, "schedule_detailed": 1}
+
+    views = schedule.day_views(user, GROUP, FRIDAY)
+    html = await views.rich()
+    week = schedule.week_views(user, GROUP, datetime.date(2026, 9, 21))
+    week_html = await week.rich()
+
+    assert '<td valign="top">' in html  # подробная таблица
+    assert 'data="rs:d:2026-09-25:ИСП-25-2">Кратко' in html
+    assert 'data="rs:f:2026-09-25:ИСП-25-2">Сегодня' in week_html  # «Сегодня» — подробно
+
+
+async def test_classic_opens_in_remembered_mode(fixed_data):
+    user = {**USER, "classic_view": 1, "schedule_detailed": 1}
+
+    ((text, keyboard),) = await schedule.day_views(user, GROUP, FRIDAY).classic()
+
+    assert "Павлович Е.М." in text  # подробный классический вид — с преподавателями
+    assert keyboard == schedule.schedule_collapse_kb("2026-09-25")
+
+
+async def test_menu_opens_in_remembered_mode(state, monkeypatch, fixed_data):
+    async def get_user(user_id):
+        return {**USER, "schedule_detailed": 1}
+
+    monkeypatch.setattr(schedule, "get_user", get_user)
+    message = _menu_message()
+
+    await schedule.on_schedule_menu(message, state)
+
+    html = message.bot.send_rich_message.await_args.kwargs["rich_message"].html
+    assert '<td valign="top">' in html
+
+
+async def test_classic_buttons_remember_mode(state, monkeypatch, fixed_data):
+    async def get_user(user_id):
+        return {**USER, "classic_view": 1}
+
+    monkeypatch.setattr(schedule, "get_user", get_user)
+
+    await schedule.on_schedule_detail(_callback("schedule_detail:2026-09-25"), state)
+
+    assert fixed_data == [(9, True)]
+
+
+async def test_daily_notify_uses_remembered_mode(daily):
+    bot = _bot()
+    user = {**USER, "schedule_detailed": 1}
+
+    await scheduler._send_daily_schedule(bot, user, FRIDAY)
+
+    html = bot.send_rich_message.await_args.kwargs["rich_message"].html
+    assert '<td valign="top">' in html

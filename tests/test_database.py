@@ -54,6 +54,18 @@ async def test_classic_view_defaults_off_and_toggles(temp_db):
 
 
 @pytest.mark.asyncio
+async def test_schedule_detailed_defaults_off_and_toggles(temp_db):
+    await database.add_user(1, GROUP_A)
+    assert (await database.get_user(1))["schedule_detailed"] == 0
+
+    await database.update_user_schedule_detailed(1, True)
+    assert (await database.get_user(1))["schedule_detailed"] == 1
+
+    await database.update_user_schedule_detailed(1, False)
+    assert (await database.get_user(1))["schedule_detailed"] == 0
+
+
+@pytest.mark.asyncio
 async def test_init_db_adds_classic_view_to_existing_table(tmp_path, monkeypatch):
     db_path = tmp_path / "bot.db"
     monkeypatch.setattr(database, "DB_PATH", db_path)
@@ -64,7 +76,9 @@ async def test_init_db_adds_classic_view_to_existing_table(tmp_path, monkeypatch
 
     await database.init_db()
 
-    assert (await database.get_user(1))["classic_view"] == 0
+    user = await database.get_user(1)
+    assert user["classic_view"] == 0
+    assert user["schedule_detailed"] == 0
 
 
 @pytest.mark.asyncio
