@@ -15,7 +15,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 
 from database import add_pending_alert, get_users_without_announcement, mark_announcement_sent
 from keyboards import alert_delete_kb
-from message_style import HTML_PARSE_MODE, esc, titled
+from message_style import HTML_PARSE_MODE, esc
 
 logger = logging.getLogger(__name__)
 
@@ -25,26 +25,27 @@ ANNOUNCEMENT_ID = "2026-09-rich-schedule"
 SEND_PAUSE_SECONDS = 0.05
 
 
-ANNOUNCEMENT_ITEMS: tuple[str, ...] = (
-    "Расписание открывается сразу на сегодня: одна таблица — номер пары, предмет, аудитория.",
-    "Сверху — отсчёт до начала или конца пары.",
-    "«Подробнее» под таблицей — полные названия, преподаватели и время. "
-    "Бот запомнит выбранный вид.",
-    "Кнопками под расписанием листаются дни и недели — в том же сообщении.",
-    "Изменения старосты видны сразу: отмены, новые аудитории, онлайн.",
-    "Доп. занятия теперь прямо в расписании.",
-    "Ежедневное расписание приходит в новом виде.",
-    "Полезные ссылки — в меню: /links",
-)
-ANNOUNCEMENT_FOOTER = (
-    "Если расписание не отображается, обнови Telegram или включи прежний вид: /classic"
+# Пишется от лица автора бота: с маленькой буквы, без тире, по-человечески.
+ANNOUNCEMENT_PARAGRAPHS: tuple[str, ...] = (
+    "привет! обновил бота, вот что поменялось:",
+    "расписание теперь открывается сразу на сегодня, одной таблицей: номер пары, предмет "
+    "и аудитория. сверху видно, сколько осталось до начала или конца пары",
+    "под таблицей есть «подробнее», там полные названия, преподаватели и время. "
+    "бот запомнит, как тебе удобнее смотреть",
+    "дни и недели листаются кнопками прямо в этом же сообщении, лишних сообщений больше не будет",
+    "если староста поменял пару (отменил, перенес в другую аудиторию или сделал онлайн), "
+    "это сразу видно в расписании",
+    "доп. занятия теперь тоже прямо в расписании, ежедневная рассылка приходит в новом виде, "
+    "а полезные ссылки переехали в меню: /links",
+    "если расписание не показывается или выглядит странно, обнови телеграм или включи "
+    "старый вид командой /classic",
+    "если вдруг что не так, пиши мне: @foxymoff",
 )
 
 
 def announcement_text() -> str:
-    """Текст сводки обновления (HTML parse_mode): главное из релиза, коротко."""
-    items = "\n".join(f"• {esc(item)}" for item in ANNOUNCEMENT_ITEMS)
-    return titled("Что нового в боте", f"{items}\n\n{esc(ANNOUNCEMENT_FOOTER)}")
+    """Текст сводки обновления (HTML parse_mode): короткие абзацы от автора бота."""
+    return "\n\n".join(esc(paragraph) for paragraph in ANNOUNCEMENT_PARAGRAPHS)
 
 
 async def send_announcement(bot: Bot, user_id: int) -> int:
