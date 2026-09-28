@@ -14,15 +14,18 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from announcements import (
     ANNOUNCEMENT_ID,
-    broadcast_announcement,
-    send_announcement,
+    BroadcastAborted,
+    BroadcastContent,
+    announcement_text,
+    broadcast,
+    broadcast_recipients,
+    send_broadcast,
 )
 from config import ADMIN_PASSWORD, ADMIN_USER_IDS
 from database import (
     get_all_users,
     get_user,
     get_users_by_role,
-    get_users_without_announcement,
     search_users,
     set_user_role,
 )
@@ -35,6 +38,7 @@ from keyboards import (
     admin_users_kb,
     announce_confirm_kb,
     back_kb,
+    broadcast_prompt_kb,
     main_menu_kb,
 )
 from message_style import (
@@ -54,6 +58,7 @@ router = Router()
 
 class AdminStates(StatesGroup):
     search_query = State()
+    broadcast_wait = State()
 
 
 ADMIN_MAX_ATTEMPTS = 5
@@ -537,51 +542,148 @@ async def _guard_admin(callback: CallbackQuery) -> bool:
     return True
 
 
-@router.message(Command("announce"))
-async def cmd_announce(message: Message, state: FSMContext) -> None:
-    """/announce — предпросмотр сводки обновления себе и подтверждение рассылки."""
+BROADCAST_PROMPT = (
+    "Пришли сообщение, которое получат все: текст (можно с форматированием и ссылками), "
+    "фото или видео с подписью.\n\n"
+    "Придёт без звука, с кнопкой «Скрыть» и удалится само через 24 часа. "
+    "Перед отправкой покажу, как оно будет выглядеть."
+)
+
+
+async def _ask_broadcast(message: Message, state: FSMContext) -> None:
+    """Попросить у админа сообщение для рассылки."""
+    await message.answer(
+        titled("Рассылка", BROADCAST_PROMPT),
+        reply_markup=broadcast_prompt_kb(),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await state.set_state(AdminStates.broadcast_wait)
+    await state.update_data(broadcast=None, broadcast_id=None)
+
+
+async def _preview_broadcast(
+    bot,
+    chat_id: int,
+    admin_id: int,
+    state: FSMContext,
+    content: BroadcastContent,
+    broadcast_id: str,
+) -> None:
+    """Показать админу рассылку ровно как увидят все и спросить подтверждение."""
+    await send_broadcast(bot, chat_id, content)
+    pending = len(await broadcast_recipients(broadcast_id, exclude={admin_id}))
+    await bot.send_message(
+        chat_id,
+        titled("Рассылка", f"Выше — как увидят все. Получат: {pending}."),
+        reply_markup=announce_confirm_kb(pending),
+        parse_mode=HTML_PARSE_MODE,
+    )
+    await state.set_state(None)
+    await state.update_data(broadcast=content.to_data(), broadcast_id=broadcast_id)
+
+
+async def _guard_admin_message(message: Message) -> bool:
     user = await get_user(message.from_user.id)
     if not user or user.get("role") != "admin":
         await message.answer(no_access_text(), parse_mode=HTML_PARSE_MODE)
+        return False
+    return True
+
+
+@router.message(Command("announce"))
+async def cmd_announce(message: Message, state: FSMContext) -> None:
+    """/announce — рассылка всем: своё сообщение или готовая сводка обновления."""
+    if not await _guard_admin_message(message):
         return
     await delete_user_message(message)
-    # Предпросмотр — ровно как увидят все (заодно админ отмечен как получивший).
-    await send_announcement(message.bot, message.from_user.id)
-    pending = len(await get_users_without_announcement(ANNOUNCEMENT_ID))
-    await message.answer(
-        titled(
-            "Сводка обновления",
-            f"Выше — как её увидят все. Получат ещё: {pending}.\n"
-            "Без звука, с кнопкой «Скрыть», удалится сама через 24 часа.",
-        ),
-        reply_markup=announce_confirm_kb(pending),
-        parse_mode=HTML_PARSE_MODE,
+    await _ask_broadcast(message, state)
+
+
+@router.message(AdminStates.broadcast_wait)
+async def on_broadcast_message(message: Message, state: FSMContext) -> None:
+    """Сообщение админа для рассылки: разошлём его копию (форматирование и вложения сохранятся).
+
+    Само сообщение не удаляем — это исходник для копирования.
+    """
+    if not await _guard_admin_message(message):
+        return
+    content = BroadcastContent(from_chat_id=message.chat.id, message_id=message.message_id)
+    broadcast_id = f"b{message.chat.id}-{message.message_id}"
+    await _preview_broadcast(
+        message.bot, message.chat.id, message.from_user.id, state, content, broadcast_id
+    )
+
+
+@router.callback_query(AdminStates.broadcast_wait, F.data == "announce:template")
+async def on_broadcast_template(callback: CallbackQuery, state: FSMContext) -> None:
+    """Разослать готовую сводку обновления (её id постоянный — повторно никто не получит)."""
+    if not await _guard_admin(callback):
+        return
+    await callback.answer()
+    content = BroadcastContent(text=announcement_text())
+    await _preview_broadcast(
+        callback.bot,
+        callback.message.chat.id,
+        callback.from_user.id,
+        state,
+        content,
+        ANNOUNCEMENT_ID,
     )
 
 
 @router.callback_query(F.data == "announce:send")
-async def on_announce_send(callback: CallbackQuery) -> None:
-    """Разослать сводку всем, кому она ещё не отправлена."""
+async def on_announce_send(callback: CallbackQuery, state: FSMContext) -> None:
+    """Разослать подтверждённое сообщение всем, кому оно ещё не отправлено."""
     if not await _guard_admin(callback):
         return
+    data = await state.get_data()
+    if not data.get("broadcast") or not data.get("broadcast_id"):
+        await callback.answer("Черновик не найден — начни заново: /announce", show_alert=True)
+        return
+    content = BroadcastContent.from_data(data["broadcast"])
     await callback.answer("Рассылаю…")
-    await callback.message.edit_text(
-        titled("Сводка обновления", "Рассылаю…"), parse_mode=HTML_PARSE_MODE
-    )
-    sent, failed = await broadcast_announcement(callback.bot)
+    await callback.message.edit_text(titled("Рассылка", "Рассылаю…"), parse_mode=HTML_PARSE_MODE)
+    try:
+        sent, failed = await broadcast(
+            callback.bot, content, data["broadcast_id"], exclude={callback.from_user.id}
+        )
+    except BroadcastAborted as exc:
+        await callback.message.edit_text(
+            titled(
+                "Рассылка остановлена",
+                f"Сообщение не отправляется: {esc(str(exc))}\n"
+                "Начни заново: /announce (кому уже ушло, повторно не получат).",
+            ),
+            parse_mode=HTML_PARSE_MODE,
+        )
+        return
+    await state.update_data(broadcast=None, broadcast_id=None)
     result = f"Готово · отправлено: {sent}"
     if failed:
         result += f"\nНе доставлено: {failed} (заблокировали бота или недоступны)"
-    await callback.message.edit_text(
-        titled("Сводка обновления", result), parse_mode=HTML_PARSE_MODE
-    )
+    await callback.message.edit_text(titled("Рассылка", result), parse_mode=HTML_PARSE_MODE)
+
+
+@router.callback_query(F.data == "announce:again")
+async def on_announce_again(callback: CallbackQuery, state: FSMContext) -> None:
+    """Написать сообщение для рассылки заново."""
+    if not await _guard_admin(callback):
+        return
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await _ask_broadcast(callback.message, state)
 
 
 @router.callback_query(F.data == "announce:cancel")
-async def on_announce_cancel(callback: CallbackQuery) -> None:
-    """Отменить рассылку сводки."""
+async def on_announce_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    """Отменить рассылку."""
     if not await _guard_admin(callback):
         return
+    await state.set_state(None)
+    await state.update_data(broadcast=None, broadcast_id=None)
     try:
         await callback.message.delete()
     except Exception:

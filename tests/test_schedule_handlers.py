@@ -210,9 +210,8 @@ async def test_today_button_sends_one_rich_message(state, monkeypatch, fixed_dat
     # «Подробнее» под таблицей (по умолчанию ссылкой), ниже ряды больших кнопок:
     # «‹ Чт, 24 | Сегодня | Сб, 26 ›», под «Сегодня» — «Эта неделя».
     assert html.endswith(
-        '</table><p><tg-button type="callback_data" style="link" data="rs:f:2026-09-25:ИСП-25-2">'
-        "Подробнее</tg-button></p>"
-        f"<footer>{GROUP}</footer>"
+        '</table><p><tg-button type="callback_data" style="link" '
+        'data="rs:f:2026-09-25:ИСП-25-2">Подробнее</tg-button></p>'
         '<tg-button-row align="center">'
         '<tg-button type="callback_data" style="primary" data="rs:d:2026-09-24:ИСП-25-2">'
         "‹ Чт, 24</tg-button>"
@@ -567,7 +566,7 @@ async def test_nav_detailed_toggle_renders_full_table(state, fixed_data, rich_us
     await schedule.on_schedule_nav(callback, state)
 
     html = callback.bot.edit_message_text.await_args.kwargs["rich_message"].html
-    assert html.count("<table") == 1
+    assert html.count("<table compact striped>") == 1  # одна таблица с парами
     assert '<td valign="top"><b>09:20</b><br><b>10:50</b></td>' in html
     assert 'data="rs:d:2026-09-25:ИСП-25-2">Кратко</tg-button>' in html
 
@@ -640,6 +639,7 @@ async def test_daily_notify_rich_has_nav(daily):
 
     html = bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert ">Подробнее</tg-button></p>" in html
+    assert "<footer>" not in html and "<i>ИСП-25-2</i>" not in html  # своя группа — без подписи
     assert html.endswith(">Эта неделя</tg-button></tg-button-row>")
 
 
@@ -703,9 +703,9 @@ async def test_other_group_opens_today_without_extras(state, monkeypatch, fixed_
 
     await schedule.on_other_group_selected(callback, state)
 
-    assert callback.message.answer.await_args.args[0] == "<b>МР-25</b>\n\nРасписание"
+    assert callback.message.answer.await_args.args[0] == "<b>Расписание другой группы</b>"
     html = callback.bot.send_rich_message.await_args.kwargs["rich_message"].html
-    assert "<footer>МР-25</footer>" in html
+    assert '<td align="right"><i>МР-25</i></td>' in html  # группа напротив «Подробнее»
     assert 'data="rs:w:2026-09-21:МР-25">Эта неделя' in html
     assert seen and all(keys == [] for keys in seen)  # чужая группа — без допов
     data = await state.get_data()

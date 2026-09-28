@@ -118,8 +118,8 @@ class _Checker(HTMLParser):
                 self.errors.append("tg-button не callback_data")
             elif len(attrs_map["data"].encode()) > 64:
                 self.errors.append("callback_data длиннее 64 байт")
-            if self.stack[-1:] not in (["tg-button-row"], ["p"]):
-                self.errors.append("tg-button вне tg-button-row и абзаца")
+            if self.stack[-1:] not in (["tg-button-row"], ["p"], ["td"]):
+                self.errors.append("tg-button вне tg-button-row, абзаца и ячейки")
         if tag not in VOID_TAGS:
             self.stack.append(tag)
 
@@ -179,8 +179,7 @@ def test_reference_day_short():
         '<tr><td>2</td><td>История</td><td align="right">КЗ</td></tr>'
         '<tr><td>3</td><td>Ин. тех.</td><td align="right">КЗ</td></tr>'
         "</table>"
-        f"<footer>{GROUP}</footer>"
-    )
+    )  # своё расписание — без подписи группы
 
 
 def test_reference_day_detailed():
@@ -249,9 +248,22 @@ def test_nearest_pair_marked_only_today():
 
 
 def test_empty_day_without_upcoming():
-    html = render_day_html(Day(SUNDAY), now=at(26, 18, 0), group=GROUP)
+    html = render_day_html(Day(SUNDAY), now=at(26, 18, 0), group=None)
 
-    assert html == f"<h3>Воскресенье, 27 сентября</h3><p>Пар нет.</p><footer>{GROUP}</footer>"
+    assert html == "<h3>Воскресенье, 27 сентября</h3><p>Пар нет.</p>"
+
+
+def test_other_group_label_right_in_italic():
+    toggle = NavButton("Подробнее", "rs:f")
+    day_page = render_day_html(day(FRIDAY), now=at(25, 1, 22), group="МР-25", toggle=toggle)
+    empty_page = render_day_html(Day(SUNDAY), now=at(26, 18, 0), group="МР-25", toggle=toggle)
+
+    for html in (day_page, empty_page):
+        check_html(html)
+        assert '<td align="right"><i>МР-25</i></td></tr></table>' in html
+        assert "<footer>" not in html
+    assert '<td><tg-button type="callback_data" style="link" data="rs:f">Подробнее' in day_page
+    assert "Подробнее" not in empty_page  # без таблицы переключать нечего
 
 
 def test_empty_day_points_to_next_study_day():
@@ -259,7 +271,6 @@ def test_empty_day_points_to_next_study_day():
         "<h3>Воскресенье, 27 сентября</h3>"
         "<p>Пар нет. Ближайшие: понедельник, 28 сентября, начало "
         f"{_tg(9, 20, 28)}</p>"
-        f"<footer>{GROUP}</footer>"
     )
 
 
@@ -326,7 +337,7 @@ def test_changes_detailed_shows_marks_note_and_link():
     assert '<td align="right" valign="top">ОНЛ</td>' in html
     assert (
         '<p>13:30 · Ин. тех. · онлайн: <a href="https://meet.example.com/a?b=1&amp;c=2">'
-        "https://meet.example.com/a?b=1&amp;c=2</a></p><footer>"
+        "https://meet.example.com/a?b=1&amp;c=2</a></p>"
     ) in html
 
 
@@ -395,7 +406,7 @@ def test_escaping_teacher_and_subject():
         )
         text = check_html(html)
         assert "C++ & <Py>" in text
-        assert "<footer>A&amp;B</footer>" in html
+        assert "<i>A&amp;B</i>" in html  # подпись чужой группы экранирована
     assert "<i>Иванов &lt;b&gt;&amp; Ко</i>" in html
     assert "Иванов <b>& Ко" in text
 
@@ -544,11 +555,13 @@ def test_details_toggle_under_table(style, attr):
     )
 
     check_html(html)
-    # Сразу под таблицей, до подписи группы и рядов навигации.
+    # Сразу под таблицей одной строкой: слева кнопка, справа группа; подписи внизу нет.
     assert (
-        f'</table><p><tg-button type="callback_data" style="{attr}" data="rs:f">Подробнее'
-        f"</tg-button></p><footer>{GROUP}</footer><tg-button-row"
+        '</table><table compact><tr><td><tg-button type="callback_data" '
+        f'style="{attr}" data="rs:f">Подробнее</tg-button></td>'
+        f'<td align="right"><i>{GROUP}</i></td></tr></table><tg-button-row'
     ) in html
+    assert "<footer>" not in html
 
 
 def test_details_toggle_style_from_constant(monkeypatch):
@@ -571,14 +584,15 @@ def test_details_toggle_skipped_without_table():
 def test_nav_goes_last_in_day_and_week():
     buttons = [[NavButton("Сегодня", "rs:t", current=True)], [NavButton("Эта неделя", "rs:w")]]
     pages = [
-        render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons),
-        render_day_html(day(FRIDAY), now=at(25, 1, 22), group=GROUP, nav=buttons, detailed=True),
-        render_week_html(week(MONDAY), now=at(25, 1, 22), group=GROUP, nav=buttons),
+        render_day_html(day(FRIDAY), now=at(25, 1, 22), group=None, nav=buttons),
+        render_day_html(day(FRIDAY), now=at(25, 1, 22), group=None, nav=buttons, detailed=True),
+        render_week_html(week(MONDAY), now=at(25, 1, 22), group=None, nav=buttons),
     ]
 
     for html in pages:
         check_html(html)
-        assert html.endswith(f"<footer>{GROUP}</footer>{nav_html(buttons)}")
+        assert html.endswith(nav_html(buttons))
+        assert "<footer>" not in html
 
 
 def test_past_week_is_collapsed_without_ended_note():

@@ -167,7 +167,7 @@ In Docker, the database is stored in the `bot-data` volume because `docker-compo
 | `/links` | Links to campus services. |
 | `/extra` | Shortcut for extra class settings through the profile flow. |
 | `/admin <password>` | Grant admin access to the current user. |
-| `/announce` | Admin only: preview the update summary, then send it silently to all users (with a «Скрыть» button, auto-deleted after 24 hours). |
+| `/announce` | Admin only: send any message (text with formatting, photo, video) or the prepared update summary to all users — preview first, delivered silently with a «Скрыть» button, auto-deleted after 24 hours. |
 | `📅 Расписание` | Today's schedule (rich view) or period selection (classic view). |
 | `📋 Староста` | Schedule editing panel for group leaders and admins. |
 | `⚙️ Админ` | Assign and remove group leaders. |
