@@ -734,6 +734,7 @@ async def render_rich_day(
     nav: NavRows = (),
     detailed: bool = False,
     toggle: NavButton | None = None,
+    show_group: bool = False,
 ) -> str:
     """Rich HTML на день; ближайший учебный день ищем, только если он нужен."""
     now = app_now()
@@ -744,7 +745,7 @@ async def render_rich_day(
     return render_day_html(
         day,
         now=now,
-        group=group_name,
+        group=group_name if show_group else None,
         upcoming=upcoming,
         lead=lead,
         nav=nav,
@@ -761,15 +762,17 @@ async def render_rich_week(
     extra_choices: list[str] | None,
     which: WeekKind,
     nav: NavRows = (),
+    show_group: bool = False,
 ) -> str:
-    """Rich HTML на неделю с понедельника."""
+    """Rich HTML на неделю с понедельника; show_group — подпись группы (чужая группа)."""
     days = [
         await get_rich_day(
             group_name, monday + datetime.timedelta(days=i), sg_inf, sg_eng, extra_choices
         )
         for i in range(7)
     ]
-    return render_week_html(days, now=app_now(), group=group_name, which=which, nav=nav)
+    group = group_name if show_group else None
+    return render_week_html(days, now=app_now(), group=group, which=which, nav=nav)
 
 
 async def classic_week_messages(
@@ -1026,6 +1029,7 @@ def day_views(
             nav=nav,
             detailed=detailed,
             toggle=toggle,
+            show_group=group_name != user.get("group_name"),
         )
 
     async def classic() -> ClassicMessages:
@@ -1058,7 +1062,14 @@ def week_views(user: dict, group_name: str, monday: datetime.date) -> ScheduleVi
 
     async def rich() -> str:
         return await render_rich_week(
-            group_name, monday, sg_inf, sg_eng, extra_keys, which, nav=nav
+            group_name,
+            monday,
+            sg_inf,
+            sg_eng,
+            extra_keys,
+            which,
+            nav=nav,
+            show_group=group_name != user.get("group_name"),
         )
 
     async def classic() -> ClassicMessages:
@@ -1153,10 +1164,9 @@ async def _open_live_schedule(
     Дни, недели и подробности переключаются кнопками в самом сообщении; клавиатура
     выбора периода нужна только классическому виду.
     """
-    context = {"schedule_context": "other", "schedule_group_name": group_name} if other else {}
-    header = await message.answer(
-        _period_header("Расписание:", context), reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE
-    )
+    # У чужой группы её название — подписью под таблицей, в шапке только «чьё».
+    header_text = title("Расписание другой группы" if other else "Расписание")
+    header = await message.answer(header_text, reply_markup=back_kb(), parse_mode=HTML_PARSE_MODE)
     views = day_views(user, group_name, app_today())
     sent = await _send_views(message.bot, message.chat.id, user, views)
     await replace_ui_messages(

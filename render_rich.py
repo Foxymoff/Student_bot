@@ -401,15 +401,19 @@ def nav_html(rows: NavRows) -> str:
     return "".join(_nav_row(row) for row in rows if row)
 
 
-def toggle_row_html(button: NavButton, style: Literal["link", "pill"], footer_text: str) -> str:
-    """Строка под таблицей: слева «Подробнее» / «Кратко», справа группа.
+def under_table_html(
+    toggle: NavButton | None, style: Literal["link", "pill"], group_text: str | None
+) -> str:
+    """Строка под таблицей: слева «Подробнее» / «Кратко», справа курсивом группа.
 
-    Выровнять части одного абзаца влево и вправо нельзя — поэтому таблица из одной
-    строки без полос. Кнопка в ячейке сохраняется (проверено по эху сервера).
+    Группу показываем только у чужой группы — своё расписание подписи не требует.
+    Выровнять части абзаца влево и вправо нельзя, поэтому при группе это таблица
+    из одной строки без полос (кнопка в ячейке сохраняется — проверено по эху).
     """
-    cells = _td(_button(button, TOGGLE_STYLES[style])) + _td(
-        _wrap("i", esc(footer_text)), align="right"
-    )
+    button = _button(toggle, TOGGLE_STYLES[style]) if toggle is not None else ""
+    if not group_text:
+        return _wrap("p", button) if button else ""
+    cells = _td(button) + _td(_wrap("i", esc(group_text)), align="right")
     return f"<table {TOGGLE_ROW_ATTRS}><tr>{cells}</tr></table>"
 
 
@@ -456,8 +460,12 @@ def _day_body(day: Day, now: datetime.datetime, upcoming: Day | None, *, detaile
     return "".join(parts)
 
 
-def _footer_text(group: str, updated_at: datetime.datetime | None, now: datetime.datetime) -> str:
-    """«{группа} · данные на HH:MM»; без времени обновления — только группа."""
+def _group_text(
+    group: str | None, updated_at: datetime.datetime | None, now: datetime.datetime
+) -> str | None:
+    """«{группа} · данные на HH:MM»; без группы (своё расписание) — ничего."""
+    if not group:
+        return None
     text = group
     if updated_at is not None:
         local = updated_at.astimezone(TZ)
@@ -468,15 +476,11 @@ def _footer_text(group: str, updated_at: datetime.datetime | None, now: datetime
     return text
 
 
-def _footer(group: str, updated_at: datetime.datetime | None, now: datetime.datetime) -> str:
-    return _wrap("footer", esc(_footer_text(group, updated_at, now)))
-
-
 def render_day_html(
     day: Day,
     *,
     now: datetime.datetime,
-    group: str,
+    group: str | None,
     updated_at: datetime.datetime | None = None,
     upcoming: Day | None = None,
     lead: str | None = None,
@@ -490,19 +494,16 @@ def render_day_html(
     upcoming — ближайший учебный день после ``day`` (для пустого дня и для «сегодня»
     после последней пары, см. needs_upcoming); lead — подпись над заголовком
     (например, «Расписание на сегодня» в ежедневной рассылке); nav — кнопки в конце;
-    toggle — «Подробнее» / «Кратко» под таблицей, напротив группы (стиль — toggle_style
-    или DETAILS_TOGGLE); без него группа — подписью внизу.
+    toggle — «Подробнее» / «Кратко» под таблицей (стиль — toggle_style или DETAILS_TOGGLE);
+    group — подпись справа под таблицей, только для чужой группы (None — без подписи).
     """
     parts = []
     if lead:
         parts.append(_wrap("p", _wrap("b", esc(lead))))
     parts.append(_day_body(day, now, upcoming, detailed=detailed))
-    if toggle is not None and day.lessons:
-        # «Подробнее» слева, группа справа — одной строкой под таблицей, без подписи внизу.
-        style = toggle_style or (DETAILS_TOGGLE if DETAILS_TOGGLE in TOGGLE_STYLES else "link")
-        parts.append(toggle_row_html(toggle, style, _footer_text(group, updated_at, now)))
-    else:
-        parts.append(_footer(group, updated_at, now))
+    style = toggle_style or (DETAILS_TOGGLE if DETAILS_TOGGLE in TOGGLE_STYLES else "link")
+    toggle = toggle if day.lessons else None  # без таблицы переключать нечего
+    parts.append(under_table_html(toggle, style, _group_text(group, updated_at, now)))
     parts.append(nav_html(nav))
     return "".join(parts)
 
@@ -543,7 +544,7 @@ def render_week_html(
     days: list[Day],
     *,
     now: datetime.datetime,
-    group: str,
+    group: str | None,
     updated_at: datetime.datetime | None = None,
     which: WeekKind = "this",
     nav: NavRows = (),
@@ -565,6 +566,6 @@ def render_week_html(
     if which == "this" and shown and all(day.date < today for day in shown):
         parts.append(_wrap("p", "Эта неделя закончилась."))
     parts.extend(_week_day(day, now, which) for day in shown)
-    parts.append(_footer(group, updated_at, now))
+    parts.append(under_table_html(None, "link", _group_text(group, updated_at, now)))
     parts.append(nav_html(nav))
     return "".join(parts)

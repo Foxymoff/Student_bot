@@ -210,9 +210,8 @@ async def test_today_button_sends_one_rich_message(state, monkeypatch, fixed_dat
     # «Подробнее» под таблицей (по умолчанию ссылкой), ниже ряды больших кнопок:
     # «‹ Чт, 24 | Сегодня | Сб, 26 ›», под «Сегодня» — «Эта неделя».
     assert html.endswith(
-        '</table><table compact><tr><td><tg-button type="callback_data" style="link" '
-        'data="rs:f:2026-09-25:ИСП-25-2">Подробнее</tg-button></td>'
-        f'<td align="right"><i>{GROUP}</i></td></tr></table>'
+        '</table><p><tg-button type="callback_data" style="link" '
+        'data="rs:f:2026-09-25:ИСП-25-2">Подробнее</tg-button></p>'
         '<tg-button-row align="center">'
         '<tg-button type="callback_data" style="primary" data="rs:d:2026-09-24:ИСП-25-2">'
         "‹ Чт, 24</tg-button>"
@@ -639,7 +638,8 @@ async def test_daily_notify_rich_has_nav(daily):
     await scheduler._send_daily_schedule(bot, USER, FRIDAY)
 
     html = bot.send_rich_message.await_args.kwargs["rich_message"].html
-    assert ">Подробнее</tg-button></td>" in html
+    assert ">Подробнее</tg-button></p>" in html
+    assert "<footer>" not in html and "<i>ИСП-25-2</i>" not in html  # своя группа — без подписи
     assert html.endswith(">Эта неделя</tg-button></tg-button-row>")
 
 
@@ -703,7 +703,7 @@ async def test_other_group_opens_today_without_extras(state, monkeypatch, fixed_
 
     await schedule.on_other_group_selected(callback, state)
 
-    assert callback.message.answer.await_args.args[0] == "<b>МР-25</b>\n\nРасписание"
+    assert callback.message.answer.await_args.args[0] == "<b>Расписание другой группы</b>"
     html = callback.bot.send_rich_message.await_args.kwargs["rich_message"].html
     assert '<td align="right"><i>МР-25</i></td>' in html  # группа напротив «Подробнее»
     assert 'data="rs:w:2026-09-21:МР-25">Эта неделя' in html

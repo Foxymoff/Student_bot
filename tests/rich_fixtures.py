@@ -162,11 +162,13 @@ def day_html(
     nav=(),
     detailed: bool = False,
     toggle_style: str | None = None,
+    group: str | None = None,
     **kwargs,
 ) -> str:
     """День так же, как собирает бот: с ближайшим учебным днём, если он нужен.
 
-    toggle_style — «Подробнее» / «Кратко» под таблицей ("link" или "pill").
+    toggle_style — «Подробнее» / «Кратко» под таблицей ("link" или "pill");
+    group — подпись чужой группы (своё расписание — без подписи).
     """
     target = day(date, **kwargs)
     nearest = upcoming(date) if render_rich.needs_upcoming(target, now) else None
@@ -174,7 +176,7 @@ def day_html(
     return render_day_html(
         target,
         now=now,
-        group=GROUP,
+        group=group,
         upcoming=nearest,
         nav=nav,
         detailed=detailed,
@@ -187,8 +189,10 @@ def today_html(now: datetime.datetime, *, detailed: bool = False) -> str:
     return day_html(now.date(), now, detailed=detailed)
 
 
-def week_html(monday: datetime.date, now: datetime.datetime, which: str, nav=()) -> str:
-    return render_week_html(week(monday), now=now, group=GROUP, which=which, nav=nav)
+def week_html(
+    monday: datetime.date, now: datetime.datetime, which: str, nav=(), group: str | None = None
+) -> str:
+    return render_week_html(week(monday), now=now, group=group, which=which, nav=nav)
 
 
 def _full(date: datetime.date, now: datetime.datetime, **kwargs) -> str:
@@ -251,6 +255,17 @@ CASES: dict[str, Callable[[], str]] = {
         at(25, 1, 22),
         nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY, detailed=True),
         toggle_style="link",
+    ),
+    # Чужая группа (/groups): её название справа под таблицей, напротив «Подробнее».
+    "day_other_group": lambda: day_html(
+        FRIDAY,
+        at(25, 1, 22),
+        nav=schedule.day_nav(FRIDAY, GROUP, FRIDAY),
+        toggle_style="link",
+        group=GROUP,
+    ),
+    "week_other_group": lambda: week_html(
+        MONDAY, at(25, 1, 22), "this", nav=schedule.week_nav(MONDAY, GROUP, FRIDAY), group=GROUP
     ),
     "full_toggle_pill": lambda: _full(
         FRIDAY,
