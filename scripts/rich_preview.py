@@ -82,6 +82,34 @@ def _live_nav(offset: int) -> str:
     return render_day_html(day, now=app_now(), group=LIVE_GROUP, nav=nav)
 
 
+# Подпись над снимком: какой момент изображён. Относительное время в <tg-time>
+# телефон считает от настоящего «сейчас», поэтому у снимков за 25.09 оно «назад».
+CAPTIONS: dict[str, str] = {
+    "day_today_before_first": "Кратко · пт 25.09, 01:22 — до первой пары",
+    "day_today_second_pair": "Кратко · пт 25.09, 11:30 — идёт 2 пара",
+    "day_today_break": "Кратко · пт 25.09, 10:55 — перемена перед 2 парой",
+    "day_today_after_last": "Кратко · пт 25.09, 16:00 — пары закончились",
+    "day_tomorrow": "Кратко · «Завтра» из чт 24.09, 20:00",
+    "day_no_pairs": "Кратко · вс 27.09 без пар",
+    "day_one_pair": "Кратко · сб 26.09 — одна пара",
+    "day_with_extra": "Кратко · с кружком",
+    "day_with_changes": "Кратко · отмена, смена аудитории, примечание, онлайн",
+    "full_today_before_first": "Подробно · пт 25.09, 01:22 — до первой пары",
+    "full_today_second_pair": "Подробно · пт 25.09, 11:30 — идёт 2 пара",
+    "full_today_break": "Подробно · пт 25.09, 10:55 — перемена перед 2 парой",
+    "full_today_after_last": "Подробно · пт 25.09, 16:00 — пары закончились",
+    "full_tomorrow": "Подробно · «Завтра» из чт 24.09, 20:00",
+    "full_one_pair": "Подробно · сб 26.09 — одна пара",
+    "full_with_extra": "Подробно · с кружком",
+    "full_with_changes": "Подробно · отмена, смена аудитории, примечание, онлайн",
+    "full_added_and_renamed": "Подробно · староста переименовал пару и добавил 4-ю",
+    "full_all_cancelled": "Подробно · все пары отменены",
+    "day_with_nav": "Кратко · с кнопками",
+    "full_with_nav": "Подробно · с кнопками",
+    "week_this_friday": "Неделя · пт 25.09, 01:22",
+}
+CAPTION_NOTE = "«через…/…назад» считается от настоящего времени"
+
 ALL_CASES = {
     **CASES,
     "live_today": _live_day,
@@ -237,6 +265,9 @@ async def main(names: list[str]) -> int:
             return 2
         for name in names or list(ALL_CASES):
             html = ALL_CASES[name]()
+            if name in CAPTIONS:
+                caption = html_lib.escape(f"{CAPTIONS[name]} · {CAPTION_NOTE}", quote=False)
+                html = f"<p><i>{caption}</i></p>{html}"
             message = await bot.send_rich_message(
                 chat_id=int(chat_id),
                 rich_message=InputRichMessage(html=html, skip_entity_detection=True),
